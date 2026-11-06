@@ -1,6 +1,35 @@
 /* Additional real-browser scanner and input-boundary regressions. */
 const assert = require("node:assert/strict");
 const { SMALL_PHONE, serve, engines, main, stubCamera } = require("./harness.cjs");
+const { READ_LIMIT, readWithin } = require("./watch.cjs");
+
+// Runs `step`, then `putBack`, the page call that puts the page back for the
+// steps after it, as the step's finally did, with the step's own failure
+// first, as live_camera_regressions.cjs does for its own steps. The call has
+// READ_LIMIT (watch.cjs), since Playwright gives page.evaluate() no timeout:
+// a page that will not answer, as in the WebKit hang or with its main thread
+// kept busy (web/TESTING.md), cannot hold the run there. A call still waiting
+// at the limit is named in the engine's report's `readsCutShort`, as
+// `<name>: no answer within 19.9 s`, and one that fails in its
+// `stepCleanupErrors`, as `<name>: <its error>`; each list is made when it
+// first gets one. After a step that failed, its own failure is what is
+// thrown, whatever the call did. After a step that passed, a call cut short
+// fails it, with that line as its failure, since the page was not put back
+// for the steps after it, and a call that fails fails it with its own error,
+// as it always did.
+async function stepThenPutBack(report, name, step, putBack) {
+  let failed = false, failure;
+  try { await step(); } catch (error) { failed = true; failure = error; }
+  const { values: { [name]: rejected }, cutShort } = await readWithin({
+    [name]: [async () => { try { await putBack(); } catch (error) { return { error }; } }, undefined],
+  }, READ_LIMIT);
+  if (cutShort.length) report.readsCutShort = [...(report.readsCutShort ?? []), ...cutShort];
+  if (rejected) report.stepCleanupErrors = [...(report.stepCleanupErrors ?? []),
+    `${name}: ${rejected.error?.message || String(rejected.error)}`];
+  if (failed) throw failure;
+  if (cutShort.length) throw new Error(cutShort[0]);
+  if (rejected) throw rejected.error;
+}
 
 // Draw known clues without reading any production OCR output. The perspective
 // fixture is a projective transform of the entire image, not just a CSS tilt.
@@ -121,7 +150,7 @@ async function ready(page) {
     window.testState = (await import("./app.js")).getState;
   });
 }
-async function scan(page, name, options) {
+async function scan(page, report, name, options) {
   const f = await page.evaluate(fixture, options);
   await page.evaluate(async () => {
     const app = await import("./app.js"),
@@ -133,12 +162,9 @@ async function scan(page, name, options) {
     el.checked = false;
   });
   const start = Date.now();
-  if (options.fallback)
-    await page.evaluate(() => {
-      window.testImageBitmap = window.createImageBitmap;
-      window.createImageBitmap = undefined;
-    });
-  try {
+  // The photo's load: a fallback scan has it without createImageBitmap, which
+  // goes back after the load, whatever its outcome (stepThenPutBack()).
+  const load = async () => {
     await page.setInputFiles("#photo-file", {
       name: `${name}.png`,
       mimeType: "image/png",
@@ -152,13 +178,17 @@ async function scan(page, name, options) {
       null,
       { timeout: 20000 },
     );
-  } finally {
-    if (options.fallback)
-      await page.evaluate(() => {
-        window.createImageBitmap = window.testImageBitmap;
-        delete window.testImageBitmap;
-      });
-  }
+  };
+  if (options.fallback) {
+    await page.evaluate(() => {
+      window.testImageBitmap = window.createImageBitmap;
+      window.createImageBitmap = undefined;
+    });
+    await stepThenPutBack(report, `createImageBitmap after ${name}`, load, () => page.evaluate(() => {
+      window.createImageBitmap = window.testImageBitmap;
+      delete window.testImageBitmap;
+    }));
+  } else await load();
   assert.equal(
     Number(await page.inputValue("#rows")),
     f.n,
@@ -429,7 +459,13 @@ async function editorRegressions(page, report) {
   report.checks.push("Kakuro black-cell labels include their across/down targets");
   await page.selectOption("#puzzle-type", "sudoku");
   await page.click("#example");
-
+  await supersededImport(page, report);
+}
+// A JSON import whose file is still being read when a later action loads
+// another board: its late error must not replace that board's status. Then
+// the page's file reading and the input's handler go back
+// (stepThenPutBack()).
+async function supersededImport(page, report) {
   // Delay the actual file-reading handler so a later UI action supersedes it.
   await page.evaluate(() => {
     const input = document.querySelector("#json-file");
@@ -437,7 +473,7 @@ async function editorRegressions(page, report) {
     File.prototype.text = () => new Promise((resolve) => { pending.release = resolve; });
     input.onchange = (event) => { pending.completed = pending.handler(event); };
   });
-  try {
+  await stepThenPutBack(report, "file reading after a superseded import", async () => {
     await page.setInputFiles("#json-file", { name: "old.json", mimeType: "application/json", buffer: Buffer.from("{invalid") });
     await page.waitForFunction(() => Boolean(window.pendingImport.release));
     await page.click("#example");
@@ -447,13 +483,11 @@ async function editorRegressions(page, report) {
       await window.pendingImport.completed;
     });
     assert.equal(await page.locator("#status").innerText(), status, "a superseded import cannot replace the current status");
-  } finally {
-    await page.evaluate(() => {
-      File.prototype.text = window.pendingImport.text;
-      document.querySelector("#json-file").onchange = window.pendingImport.handler;
-      delete window.pendingImport;
-    });
-  }
+  }, () => page.evaluate(() => {
+    File.prototype.text = window.pendingImport.text;
+    document.querySelector("#json-file").onchange = window.pendingImport.handler;
+    delete window.pendingImport;
+  }));
   report.checks.push("superseded JSON import errors are ignored");
 }
 async function installControlledCamera(page) {
@@ -496,7 +530,8 @@ async function cameraOwnershipRegressions(page, report) {
   await page.click("#example");
   const before = await page.evaluate(() => window.testState().puzzle);
   await installControlledCamera(page);
-  try {
+  // The controlled camera goes back after the step (stepThenPutBack()).
+  await stepThenPutBack(report, "camera after camera ownership", async () => {
     for (const action of ["edit", "solve"]) {
       await page.click("#camera");
       await page.waitForFunction(() => document.querySelector("#status-text").textContent === "Camera ready.");
@@ -530,9 +565,7 @@ async function cameraOwnershipRegressions(page, report) {
           "the camera's previews and the Solve after them reuse the page's interpreter");
       }
     }
-  } finally {
-    await page.evaluate(() => window.cameraTest.restore());
-  }
+  }, () => page.evaluate(() => window.cameraTest.restore()));
   report.checks.push("editing and solving stop live capture, including already queued detection callbacks");
 }
 async function confirmationRegressions(page, report) {
@@ -546,7 +579,8 @@ async function confirmationRegressions(page, report) {
   await ready(page);
   const before = await page.evaluate(() => window.testState());
   await installControlledCamera(page);
-  try {
+  // The controlled camera goes back after the step (stepThenPutBack()).
+  await stepThenPutBack(report, "camera after confirmation", async () => {
     let stopped = 0;
     for (const action of ["back", "escape", "confirm"]) {
       await page.click("#camera");
@@ -569,9 +603,7 @@ async function confirmationRegressions(page, report) {
     }
     await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 });
     assert.deepEqual(await page.evaluate(() => window.testState().puzzle), before.puzzle);
-  } finally {
-    await page.evaluate(() => window.cameraTest.restore());
-  }
+  }, () => page.evaluate(() => window.cameraTest.restore()));
   // A replacement board invalidates the modal. An old confirmation must not
   // implicitly accept a transcription that was never shown in that dialog.
   await page.evaluate((puzzle) => {
@@ -725,7 +757,7 @@ async function run() {
         ["binary", { small: true, binary: true }],
         ["multi-digit", { path: true }],
       ])
-        report.scans.push(await scan(page, label, options));
+        report.scans.push(await scan(page, report, label, options));
       await page.screenshot({
         path: `browser-artifacts/${name}-scanner-improved.png`,
         fullPage: true,
@@ -735,5 +767,5 @@ async function run() {
     server.close();
   }
 }
-module.exports = { run };
+module.exports = { run, stepThenPutBack, scan, supersededImport, cameraOwnershipRegressions, confirmationRegressions };
 main(module, run);

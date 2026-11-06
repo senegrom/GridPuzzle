@@ -174,7 +174,8 @@ function phaseTimer(report,name) {
 // tenth of a second under the page's default timeout, so that a page that
 // will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
 // run here: a read still waiting then keeps its fallback, and
-// `readsCutShort` names it.
+// `readsCutShort` names it, after any step's clean-up cut short before it
+// (stepThenPutBack()).
 async function readAfterFailure(page,report) {
   const {values,cutShort}=await readWithin({
     storageStatus:[()=>page.textContent("#capture-storage-status"),""],
@@ -185,7 +186,169 @@ async function readAfterFailure(page,report) {
     statusDetail:[()=>page.textContent("#status-detail"),""],
     cameraHelp:[()=>page.textContent("#camera-help"),""],
   },READ_LIMIT);
-  Object.assign(report,values,{readsCutShort:cutShort});
+  Object.assign(report,values,{readsCutShort:[...(report.readsCutShort??[]),...cutShort]});
+}
+// Runs `step`, then `putBack`, the page call that puts the page back for the
+// steps after it, as the step's finally did, with the step's own failure
+// first. The call has READ_LIMIT (watch.cjs), as the reads after a failure
+// have, since Playwright gives page.evaluate() and page.setViewportSize() no
+// timeout: a page that will not answer, as in the WebKit hang or with its
+// main thread kept busy (web/TESTING.md), cannot hold the run there. A call
+// still waiting at the limit is named in the report's `readsCutShort`, as
+// `<name>: no answer within 19.9 s`, and one that fails in its
+// `stepCleanupErrors`, as `<name>: <its error>`; each list is made when it
+// first gets one. After a step that failed, its own failure is what is
+// thrown, whatever the call did. After a step that passed, a call cut short
+// fails it, with that line as its failure, since the page was not put back
+// for the steps after it, and a call that fails fails it with its own error,
+// as it always did.
+async function stepThenPutBack(report,name,step,putBack) {
+  let failed=false,failure;
+  try { await step(); } catch(error){failed=true;failure=error;}
+  const {values:{[name]:rejected},cutShort}=await readWithin({
+    [name]:[async()=>{try { await putBack(); } catch(error){return {error};}},undefined],
+  },READ_LIMIT);
+  if(cutShort.length)report.readsCutShort=[...(report.readsCutShort??[]),...cutShort];
+  if(rejected)report.stepCleanupErrors=[...(report.stepCleanupErrors??[]),`${name}: ${rejected.error?.message||String(rejected.error)}`];
+  if(failed)throw failure;
+  if(cutShort.length)throw new Error(cutShort[0]);
+  if(rejected)throw rejected.error;
+}
+// The steps after which a call puts the page back for the steps that follow,
+// a call once made in each step's finally and now through stepThenPutBack().
+// They are here, outside run(), so that a test can play each on a stand-in
+// page (web/tests/step-cleanups.test.js).
+// A phone and screens taller than the general viewfinder rule's 65vh cap on
+// videos: the canvas and the video share one box at each. Then the viewport
+// goes back to the page's own size.
+async function layersAtEachScreen(page,report,base) {
+  await idlePage(page,base);await fixture(page);
+  const size=page.viewportSize();report.viewfinderLayers={};
+  await stepThenPutBack(report,"viewport after viewfinder layers",async()=>{
+    for (const [width,height] of [[430,932],[820,1180],[1920,1080]]) {
+      await page.setViewportSize({width,height});
+      await startLive(page);
+      await page.waitForFunction(()=>document.getElementById("video").videoWidth>0);
+      const layers=await viewfinderLayers(page);report.viewfinderLayers[`${width}x${height}`]=layers;
+      assert.deepEqual(layers.canvas,layers.video,`at ${width} x ${height} the canvas has the video's box`);
+      // The canvas takes touches, as when it showed snapshots: VoiceOver
+      // finds its label there, and the video's native controls get none.
+      assert.equal(layers.touched,"live-preview","a touch on the picture reaches the canvas, not the video");
+      assert.equal(layers.videoPointer,"none","nor any touch the video's box alone has");
+      await page.click("#close-camera");
+    }
+  },()=>page.setViewportSize(size));
+  report.checks.push("the video and the canvas over it share one box on a phone, a tablet and a desktop screen, so the outline lands on the video; touches reach the canvas, not the video");
+}
+// The frozen action row and the legend on a 320 x 568 screen, then the
+// viewport back to the page's own size.
+async function narrowScreen(page,report) {
+  const size=page.viewportSize();
+  await page.setViewportSize({width:320,height:568});
+  await stepThenPutBack(report,"viewport after 320 px",async()=>{
+    await page.evaluate(()=>{window.liveMode="grid";});await startLive(page);
+    // WebKit offers Start preview until its tap starts playback (startLive
+    // taps it): measure the live row once the button has gone.
+    await page.waitForFunction(()=>document.getElementById("start-camera").hidden&&document.getElementById("video").videoWidth>0);
+    const live=await cameraLayout(page);
+    await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
+    const frozen=await cameraLayout(page);report.narrowLayout={live,frozen};
+    assert.equal(frozen.viewfinder,live.viewfinder,"freezing does not shrink the viewfinder");
+    assert.equal(frozen.row,live.row,"the frozen action row stays one line");assert.equal(frozen.rowOverflow,false);
+    assert.equal(frozen.clear.top,frozen.shutter.top);assert.ok(frozen.clear.right<=frozen.panel.right);
+    // The frozen reading's counts show in the legend, each in place of
+    // its colour's name: they take no room of their own, so the legend
+    // (and the viewfinder) is the size it is without them.
+    assert.equal(frozen.counts,4,"the frozen legend counts the reading and its solution");
+    assert.equal(frozen.legend,frozen.bareLegend,"the counts do not enlarge the legend");
+    // A Clear whose playback was refused adds Start preview to the row:
+    // it takes a line of its own, and Save picture and Clear keep size.
+    await page.evaluate(()=>{document.getElementById("start-camera").hidden=false;});
+    const retry=await cameraLayout(page);report.narrowLayout.retry=retry;
+    await page.evaluate(()=>{document.getElementById("start-camera").hidden=true;});
+    assert.equal(retry.rowOverflow,false);
+    for (const key of ["shutter","clear"])
+      assert.deepEqual([retry[key].width,retry[key].height],[frozen[key].width,frozen[key].height],`${key} is not squeezed beside Start preview`);
+    assert.equal(retry.clear.top,retry.shutter.top);assert.ok(retry.start.bottom<=retry.shutter.top,"Start preview has a line of its own");
+    await page.click("#close-camera");
+  },()=>page.setViewportSize(size));
+  report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size, and the legend's counts take no room of their own; Start preview after a refused Clear gets a line of its own");
+}
+// Nothing freezes without automatic solving: the playing video stays the
+// display, with the outline over it and the counts in the legend, and the
+// shutter keeps a fresh verified frame with its clues, which the panel then
+// shows exactly as stored. Then automatic solving is ticked again.
+async function captureWithoutAutoSolve(page,report) {
+  await watchTrackReplies(page);
+  const autoSolve=value=>page.evaluate(value=>{const box=document.getElementById("auto-solve");box.checked=value;box.dispatchEvent(new Event("change",{bubbles:true}));},value);
+  await page.evaluate(()=>{window.liveMode="grid";});await autoSolve(false);
+  await stepThenPutBack(report,"automatic solving after live capture",async()=>{
+    await startLive(page);
+    // The complete reading (the provisional atlas reading shows the
+    // same 14 clues earlier, all flagged, while the help line says
+    // "Checking printed clues…"). The help line names the complete
+    // reading's counts as it completes; the canvas and the legend show
+    // them with the next render, up to a heartbeat (100 ms) later.
+    await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;
+      const help=/^Clues read \((\d+) recognised, (\d+) uncertain\)\. Automatic solving is off/.exec(document.getElementById("camera-help").textContent);
+      return !!help&&d.recognised===help[1]&&d.uncertain===help[2]&&Number(d.recognised)+Number(d.uncertain)===14;},null,{timeout:150000});
+    const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
+      return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
+        legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
+        help:document.getElementById("camera-help").textContent};});
+    report.liveCapture={live};
+    assert.equal(live.view,"live");assert.equal(live.overlay,"outline");assert.equal(live.solution,0);assert.equal(live.paused,false);
+    assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
+    assert.equal(live.help.match(/^Clues read \(\d+ recognised, \d+ uncertain\)\. Automatic solving is off/)?.[0],
+      `Clues read (${live.legend[0]} recognised, ${live.legend[1]} uncertain). Automatic solving is off`,"the legend and the help line give the same counts");
+    await shutterAfterVerification(page);
+    await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
+    const shown=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
+    const stored=await page.evaluate(async()=>{
+      const record=await (await import("./capture-store.js")).loadCapture();
+      return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(record.blob);});
+    });
+    assert.equal(stored,shown,"the panel shows exactly the stored picture");
+    assert.equal(await page.locator("#live-preview").getAttribute("data-view"),"captured");
+    assert.match(await page.textContent("#use-live-capture"),/Review captured clues/,"a fresh verified frame keeps its reading");
+    report.liveCapture.offered=await page.textContent("#use-live-capture");
+    await page.click("#close-camera");
+  },()=>autoSolve(true));
+  report.checks.push("without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture");
+}
+// The live view never turns a reading (only a still photograph's is checked
+// for a turn): aimed at the paper a quarter turn round, with real OCR, it
+// neither solves nor freezes. The help line says the grid looks sideways, by
+// the cue the still check reads its turns on, where it asked to move closer
+// and then to wait for a clearer frame, which cannot help; the export says so
+// too. Then the paper is upright again and the help line no longer watched.
+async function pageLyingSideways(page,report) {
+  await page.evaluate(()=>{
+    window.liveMode="grid";window.liveTurn=90;
+    const help=document.getElementById("camera-help"),log=window.turnLog=[];
+    window.turnObserver?.disconnect();window.turnObserver=new MutationObserver(()=>log.push(help.textContent));
+    turnObserver.observe(help,{childList:true,characterData:true,subtree:true});
+  });
+  await stepThenPutBack(report,"paper's turn after a page lying sideways",async()=>{
+    await startLive(page);
+    await page.waitForFunction(()=>/^The grid looks sideways\./.test(document.getElementById("camera-help").textContent),null,{timeout:150000});
+    await sleep(3000);
+    const sideways=await page.evaluate(()=>{const d=document.getElementById("live-preview").dataset;
+      return {view:d.view,solution:Number(d.solution),counts:[d.recognised,d.uncertain,d.unknown],
+        help:document.getElementById("camera-help").textContent,texts:[...new Set(turnLog)]};});
+    sideways.events=await page.evaluate(()=>{
+      const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
+      node("prepare").click();try{return [...new Set(JSON.parse(node("preview").textContent).events.map(e=>e.reason))];}finally{node("clear").click();}
+    });
+    report.sideways=sideways;
+    assert.equal(sideways.view,"live","a page lying sideways does not freeze");assert.equal(sideways.solution,0);
+    assert.match(sideways.help,/^The grid looks sideways\. Turn the page or the phone a quarter turn/,"the help line still names the turn");
+    assert.ok(!sideways.texts.some(text=>/^Waiting for a clearer frame|^Some printed marks could not be read|^No printed clues were read yet/.test(text)),
+      `nor asked to move closer or wait for a clearer frame (${JSON.stringify(sideways.texts)})`);
+    assert.ok(sideways.events.includes("grid-sideways"),`the export records the turn (${JSON.stringify(sideways.events)})`);
+    await page.click("#close-camera");
+  },()=>page.evaluate(()=>{window.liveTurn=0;window.turnObserver?.disconnect();}));
+  report.checks.push("aimed at the paper a quarter turn round, the live view reads it as it lies and does not freeze; the help line and the export say the grid looks sideways, not to move closer or wait for a clearer frame");
 }
 async function run() {
   const server=await serve();
@@ -194,27 +357,7 @@ async function run() {
       report.checks=[];
       const time=phaseTimer(report,name);
       try {
-        await time("viewfinder layers",async()=>{
-          // A phone and screens taller than the general viewfinder rule's 65vh
-          // cap on videos: the canvas and the video share one box at each.
-          await idlePage(page,server.base);await fixture(page);
-          const size=page.viewportSize();report.viewfinderLayers={};
-          try {
-            for (const [width,height] of [[430,932],[820,1180],[1920,1080]]) {
-              await page.setViewportSize({width,height});
-              await startLive(page);
-              await page.waitForFunction(()=>document.getElementById("video").videoWidth>0);
-              const layers=await viewfinderLayers(page);report.viewfinderLayers[`${width}x${height}`]=layers;
-              assert.deepEqual(layers.canvas,layers.video,`at ${width} x ${height} the canvas has the video's box`);
-              // The canvas takes touches, as when it showed snapshots: VoiceOver
-              // finds its label there, and the video's native controls get none.
-              assert.equal(layers.touched,"live-preview","a touch on the picture reaches the canvas, not the video");
-              assert.equal(layers.videoPointer,"none","nor any touch the video's box alone has");
-              await page.click("#close-camera");
-            }
-          } finally { await page.setViewportSize(size); }
-          report.checks.push("the video and the canvas over it share one box on a phone, a tablet and a desktop screen, so the outline lands on the video; touches reach the canvas, not the video");
-        });
+        await time("viewfinder layers",()=>layersAtEachScreen(page,report,server.base));
         await time("live solve",async()=>{
         await idlePage(page,server.base);const accepted=await page.evaluate(()=>liveApp.getState());await fixture(page);
         await recordPreviewDraws(page);await solveLive(page);
@@ -354,114 +497,9 @@ async function run() {
         await page.click("#close-camera");
         report.checks.push("hiding the app while frozen turns the camera off but keeps the solution; Clear asks for the camera again; Save picture keeps a frozen picture without a camera");
         });
-        await time("320 px",async()=>{
-          const size=page.viewportSize();
-          await page.setViewportSize({width:320,height:568});
-          try {
-            await page.evaluate(()=>{window.liveMode="grid";});await startLive(page);
-            // WebKit offers Start preview until its tap starts playback (startLive
-            // taps it): measure the live row once the button has gone.
-            await page.waitForFunction(()=>document.getElementById("start-camera").hidden&&document.getElementById("video").videoWidth>0);
-            const live=await cameraLayout(page);
-            await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen",null,{timeout:150000});
-            const frozen=await cameraLayout(page);report.narrowLayout={live,frozen};
-            assert.equal(frozen.viewfinder,live.viewfinder,"freezing does not shrink the viewfinder");
-            assert.equal(frozen.row,live.row,"the frozen action row stays one line");assert.equal(frozen.rowOverflow,false);
-            assert.equal(frozen.clear.top,frozen.shutter.top);assert.ok(frozen.clear.right<=frozen.panel.right);
-            // The frozen reading's counts show in the legend, each in place of
-            // its colour's name: they take no room of their own, so the legend
-            // (and the viewfinder) is the size it is without them.
-            assert.equal(frozen.counts,4,"the frozen legend counts the reading and its solution");
-            assert.equal(frozen.legend,frozen.bareLegend,"the counts do not enlarge the legend");
-            // A Clear whose playback was refused adds Start preview to the row:
-            // it takes a line of its own, and Save picture and Clear keep size.
-            await page.evaluate(()=>{document.getElementById("start-camera").hidden=false;});
-            const retry=await cameraLayout(page);report.narrowLayout.retry=retry;
-            await page.evaluate(()=>{document.getElementById("start-camera").hidden=true;});
-            assert.equal(retry.rowOverflow,false);
-            for (const key of ["shutter","clear"])
-              assert.deepEqual([retry[key].width,retry[key].height],[frozen[key].width,frozen[key].height],`${key} is not squeezed beside Start preview`);
-            assert.equal(retry.clear.top,retry.shutter.top);assert.ok(retry.start.bottom<=retry.shutter.top,"Start preview has a line of its own");
-            await page.click("#close-camera");
-          } finally { await page.setViewportSize(size); }
-          report.checks.push("on a 320 x 568 screen the frozen row (Save picture, Clear) stays one line and the viewfinder keeps its size, and the legend's counts take no room of their own; Start preview after a refused Clear gets a line of its own");
-        });
-        await time("live capture with automatic solving off",async()=>{
-          // Nothing freezes without automatic solving: the playing video stays
-          // the display, with the outline over it and the counts in the legend,
-          // and the shutter keeps a fresh verified frame with its clues, which
-          // the panel then shows exactly as stored.
-          await watchTrackReplies(page);
-          const autoSolve=value=>page.evaluate(value=>{const box=document.getElementById("auto-solve");box.checked=value;box.dispatchEvent(new Event("change",{bubbles:true}));},value);
-          await page.evaluate(()=>{window.liveMode="grid";});await autoSolve(false);
-          try {
-            await startLive(page);
-            // The complete reading (the provisional atlas reading shows the
-            // same 14 clues earlier, all flagged, while the help line says
-            // "Checking printed clues…"). The help line names the complete
-            // reading's counts as it completes; the canvas and the legend show
-            // them with the next render, up to a heartbeat (100 ms) later.
-            await page.waitForFunction(()=>{const d=document.getElementById("live-preview").dataset;
-              const help=/^Clues read \((\d+) recognised, (\d+) uncertain\)\. Automatic solving is off/.exec(document.getElementById("camera-help").textContent);
-              return !!help&&d.recognised===help[1]&&d.uncertain===help[2]&&Number(d.recognised)+Number(d.uncertain)===14;},null,{timeout:150000});
-            const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
-              return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
-                legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
-                help:document.getElementById("camera-help").textContent};});
-            report.liveCapture={live};
-            assert.equal(live.view,"live");assert.equal(live.overlay,"outline");assert.equal(live.solution,0);assert.equal(live.paused,false);
-            assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
-            assert.equal(live.help.match(/^Clues read \(\d+ recognised, \d+ uncertain\)\. Automatic solving is off/)?.[0],
-              `Clues read (${live.legend[0]} recognised, ${live.legend[1]} uncertain). Automatic solving is off`,"the legend and the help line give the same counts");
-            await shutterAfterVerification(page);
-            await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
-            const shown=await page.locator("#live-preview").evaluate(c=>c.toDataURL());
-            const stored=await page.evaluate(async()=>{
-              const record=await (await import("./capture-store.js")).loadCapture();
-              return await new Promise(resolve=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.readAsDataURL(record.blob);});
-            });
-            assert.equal(stored,shown,"the panel shows exactly the stored picture");
-            assert.equal(await page.locator("#live-preview").getAttribute("data-view"),"captured");
-            assert.match(await page.textContent("#use-live-capture"),/Review captured clues/,"a fresh verified frame keeps its reading");
-            report.liveCapture.offered=await page.textContent("#use-live-capture");
-            await page.click("#close-camera");
-          } finally { await autoSolve(true); }
-          report.checks.push("without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture");
-        });
-        await time("a page lying sideways",async()=>{
-          // The live view never turns a reading (only a still photograph's
-          // is checked for a turn): aimed at the paper a quarter turn round,
-          // with real OCR, it neither solves nor freezes. The help line says
-          // the grid looks sideways, by the cue the still check reads its
-          // turns on, where it asked to move closer and then to wait for a
-          // clearer frame, which cannot help; the export says so too.
-          await page.evaluate(()=>{
-            window.liveMode="grid";window.liveTurn=90;
-            const help=document.getElementById("camera-help"),log=window.turnLog=[];
-            window.turnObserver?.disconnect();window.turnObserver=new MutationObserver(()=>log.push(help.textContent));
-            turnObserver.observe(help,{childList:true,characterData:true,subtree:true});
-          });
-          try {
-            await startLive(page);
-            await page.waitForFunction(()=>/^The grid looks sideways\./.test(document.getElementById("camera-help").textContent),null,{timeout:150000});
-            await sleep(3000);
-            const sideways=await page.evaluate(()=>{const d=document.getElementById("live-preview").dataset;
-              return {view:d.view,solution:Number(d.solution),counts:[d.recognised,d.uncertain,d.unknown],
-                help:document.getElementById("camera-help").textContent,texts:[...new Set(turnLog)]};});
-            sideways.events=await page.evaluate(()=>{
-              const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
-              node("prepare").click();try{return [...new Set(JSON.parse(node("preview").textContent).events.map(e=>e.reason))];}finally{node("clear").click();}
-            });
-            report.sideways=sideways;
-            assert.equal(sideways.view,"live","a page lying sideways does not freeze");assert.equal(sideways.solution,0);
-            assert.match(sideways.help,/^The grid looks sideways\. Turn the page or the phone a quarter turn/,"the help line still names the turn");
-            assert.ok(!sideways.texts.some(text=>/^Waiting for a clearer frame|^Some printed marks could not be read|^No printed clues were read yet/.test(text)),
-              `nor asked to move closer or wait for a clearer frame (${JSON.stringify(sideways.texts)})`);
-            assert.ok(sideways.events.includes("grid-sideways"),`the export records the turn (${JSON.stringify(sideways.events)})`);
-            await page.click("#close-camera");
-          } finally { await page.evaluate(()=>{window.liveTurn=0;window.turnObserver?.disconnect();}); }
-          report.checks.push("aimed at the paper a quarter turn round, the live view reads it as it lies and does not freeze; the help line and the export say the grid looks sideways, not to move closer or wait for a clearer frame");
-        });
+        await time("320 px",()=>narrowScreen(page,report));
+        await time("live capture with automatic solving off",()=>captureWithoutAutoSolve(page,report));
+        await time("a page lying sideways",()=>pageLyingSideways(page,report));
         await time("the freeze's wait, off by default and on through its checkbox",async()=>{
           // "Wait up to 3 s for clearer clues before freezing" is off by
           // default: a solved reading with a yellow clue a retry could still
@@ -728,5 +766,5 @@ async function run() {
     });
   } finally{server.close();}
 }
-module.exports = { run, readAfterFailure };
+module.exports = { run, readAfterFailure, stepThenPutBack, layersAtEachScreen, narrowScreen, captureWithoutAutoSolve, pageLyingSideways };
 main(module,run);
