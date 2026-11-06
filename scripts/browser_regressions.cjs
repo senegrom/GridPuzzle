@@ -589,8 +589,9 @@ async function cameraOwnershipRegressions(page, report) {
       else {
         await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 })
           .catch(async (error) => {
-            // Say what the page showed, so a timeout explains itself, or that
-            // it did not answer within READ_LIMIT (shownAfterSolveWait()).
+            // Say what the page showed, so a timeout explains itself, that it
+            // did not answer within READ_LIMIT or why it could not be read
+            // (shownAfterSolveWait()).
             throw new Error(`${error.message}; ${await shownAfterSolveWait(page, report)}`);
           });
         assert.equal(await page.evaluate(() => window.cameraTest.solverWorkers), 0,
