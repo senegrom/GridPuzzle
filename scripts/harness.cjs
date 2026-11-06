@@ -1,8 +1,8 @@
 /* What every browser suite otherwise repeats: a server for the built site,
-   the two mobile engines, one report per engine, a screenshot when a suite
-   fails or its pages throw or end, a close that cannot wait for ever,
-   temporary directories that go as the process exits, on a signal too, and
-   the exit code. */
+   the two mobile engines, one report per engine, a screenshot asked for
+   when a suite fails or its pages throw or end, a close that cannot wait for
+   ever, temporary directories that go as the process exits, on a signal
+   too, and the exit code. */
 const assert = require("node:assert/strict");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -179,9 +179,10 @@ function baselineSite(commit, files) {
    reports to `file` (under browser-artifacts unless it names a directory)
    after each engine. A page error fails the engine, on the suite's page or
    on any other page it opens in the engine's browser, and so does anything
-   else watch() records, which also leads the failure; an engine that fails
-   so, or whose suite throws, gets a screenshot, and every engine runs before
-   the first failure is rethrown. An engine that passed still fails, with no
+   else watch() records, which also leads the failure; for an engine that
+   fails so, or whose suite throws, a screenshot is asked for (a page or
+   browser that has gone gives none), and every engine runs before the first
+   failure is rethrown. An engine that passed still fails, with no
    screenshot, when its report names anything in `readsCutShort` or
    `readsFailed`, whoever put it there: the lists of the reads of its page
    that watch.cjs's readWithin() cut short or saw fail, as it spells them,

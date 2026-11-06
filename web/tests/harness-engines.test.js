@@ -13,9 +13,10 @@ import { createRequire } from 'node:module';
 // fails, in engines()' finally, beside the browser's close, with the reads
 // named and no failure screenshot; its report is written, its browser
 // closed, the next engine run and the first failure thrown again at the end.
-// A suite's own failure, an uncaught page error and a page or the browser
-// lost still fail the engine first, with their screenshot, as before; a
-// close that fails too stays in cleanupErrors, after the reads' failure.
+// A suite's own failure, an uncaught page error, a page lost, and the
+// browser lost when its news comes before the reads fail, still fail the
+// engine first, asking for their screenshot, as before; a close that fails
+// too stays in cleanupErrors, after the reads' failure.
 // The suite runs as the suites do, through main(), in a process of its own,
 // on a stand-in for Playwright; loading the harness needs neither
 // Playwright nor Python.
@@ -214,11 +215,12 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
 // What fails an engine first stays first, as before the reads' failure came
 // to engines(): the suite's own failure, an uncaught page error, a page lost
 // and a browser lost whose news came before the reads failed, each found in
-// the try, which take the failure screenshot, while the report still names
+// the try, which asks for the failure screenshot (the stand-in's page takes
+// it; a real page that has gone gives none), while the report still names
 // the reads. The engine has failed then, and the reads change nothing more.
 // These rows check what has not changed, so that they pass on the harness as
 // it was too.
-describe('engines() keeps a suite\'s own failure, a page error and a page or browser lost first, as before', { concurrency: true }, () => {
+describe('engines() keeps first a suite\'s own failure, a page error, a page lost and a browser lost whose news comes before the reads fail, as before', { concurrency: true }, () => {
   const reads = { readsCutShort: [CUT], readsFailed: [FAILED] };
   const lost = 'AssertionError [ERR_ASSERTION]: chromium: a page crashed or closed, or the browser disconnected';
   for (const [what, plan, failure] of [

@@ -26,8 +26,8 @@ Python's `http.server` for the built site on a port the system picks (under
 `/GridPuzzle/` through the `_preview` link when a suite needs the Pages path),
 `engines()` runs the suite in Chromium and WebKit on a fresh phone-sized
 context with the service worker blocked, collects the uncaught errors of every
-page the suite opens, screenshots an engine whose suite fails or whose pages
-throw or end, and writes one report per
+page the suite opens, asks for a screenshot of an engine whose suite fails or
+whose pages throw or end, and writes one report per
 engine under `browser-artifacts/`, `temporaryDirectory()` makes a folder of a
 suite's own under the system temp, and `baselineSite()` builds in one the
 two-root directory the paired suites use to compare the scanner with a pinned
@@ -1011,12 +1011,14 @@ close's goes in `cleanupErrors` and is printed after it. A read on a browser
 that has gone can fail before Playwright reports what ended (above); the checks
 in the `try` of `engines()` then find nothing yet, and the reads' failure waits
 for that news, for at most a second, as a failure that says its target is gone
-waits in the `catch`, and is led by what ended. When the news comes first, the
-`try` fails the engine, as for any lost browser. A failure of the suite's
-steps, an uncaught page error, or a page or the browser lost fails the engine
-in that `try`, as it always has, with the failure's screenshot, and the two
-lists, which still name the reads, add nothing to it; reads in a `catch` keep
-their outcome too, the engine having failed already. `live_recovery` runs each
+waits in the `catch`, and is led by what ended, with no screenshot; news that
+comes after that second leads nothing. A failure of the suite's steps, an
+uncaught page error, a page lost, or the browser lost when its news comes
+before the reads fail, fails the engine in that `try`, as it always has, asking
+for the failure's screenshot (a page or browser that has gone gives none), and
+the two lists, which still name the reads, add nothing to it; reads in a
+`catch` keep their outcome too, the engine having failed already.
+`live_recovery` runs each
 of its two scenes, and `external_replay` each of its three fixtures, in an
 `engines()` call of its own, one after the other, and such an engine fails its
 scene or fixture as a failing step does: the other engine and the next scenes
@@ -1137,8 +1139,9 @@ and `live_recovery` a snapshot that answers or fails beside a stop that never
 answers or fails names each in its list; and a page that throws an uncaught
 error, or crashes, as the first of those reads is asked fails every engine with
 `uncaught page errors`, printed with the page's error, or, after a line that
-names the crash, `a page crashed or closed, or the browser disconnected`, with
-its screenshot and nothing printed of the reads, which `readsCutShort` names.
+names the crash, `a page crashed or closed, or the browser disconnected`,
+asking for its screenshot, with nothing printed of the reads, which
+`readsCutShort` names.
 With a plan for each browser it launches, it fails only the Chromium of
 `live_recovery`'s first scene and of `external_replay`'s first fixture, by its
 first step, by reads cut short or by reads that fail after its steps passed,
@@ -1158,8 +1161,8 @@ or rejects as well, the report keeps the reads' failure, the close's is in
 failed as the browser went away fails the engine once the disconnection has
 come, led by it. With the suite's own failure, an uncaught page error, a crash
 or the browser's disconnection before the reads failed as well, the engine
-fails with that, with its screenshot and nothing printed of the reads; those
-rows pass on the harness as it was too.
+fails with that, asking for its screenshot, which the stand-in takes, with
+nothing printed of the reads; those rows pass on the harness as it was too.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
