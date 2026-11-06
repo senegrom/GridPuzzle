@@ -3,7 +3,7 @@ const { chromium, webkit } = require("playwright");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { exitIfUnclosed, serve, sleep, stubCamera, watch } = require("./harness.cjs");
-const { CLOSE_LIMIT, cleanUp } = require("./watch.cjs");
+const { CLOSE_LIMIT, READ_LIMIT, cleanUp, readWithin } = require("./watch.cjs");
 // The offline checks stop the origin and start it again: the port is fixed so
 // the service worker's cache still belongs to the same origin.
 const BASE = "http://127.0.0.1:8765/GridPuzzle/",
@@ -705,14 +705,27 @@ async function checkStartupCancellation(browser, image, report) {
       console.error(name, error);
       if (page) {
         try {
+          // The screenshot has the page's timeout, and one that fails leaves
+          // the page unread. The reads after it start at once and share
+          // READ_LIMIT (watch.cjs), so that a page that will not answer, as in
+          // the WebKit hang (web/TESTING.md), cannot hold the run here: the
+          // report as written has no field for a read that fails or is still
+          // waiting then, and `readsCutShort` names one cut short.
           await screenshot({
             path: `browser-artifacts/${name}-failure.png`,
             fullPage: true,
           });
-          report.status = await page.locator("#status").innerText();
-          report.state = await page.evaluate(() =>
-            window.__gridpuzzleTestState(),
+          const { values, cutShort } = await readWithin(
+            {
+              status: [() => page.locator("#status").innerText(), undefined],
+              state: [
+                () => page.evaluate(() => window.__gridpuzzleTestState()),
+                undefined,
+              ],
+            },
+            READ_LIMIT,
           );
+          Object.assign(report, values, { readsCutShort: cutShort });
         } catch {}
       }
     } finally {
