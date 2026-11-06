@@ -236,18 +236,18 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
    program's entry point, print the failure and set the exit code. The
    process then ends by itself, once what the suite started has stopped,
    unless a browser would not close: exitIfUnclosed() ends it then. Both read
-   which module is the entry point as they are called (process.mainModule:
-   see watch.cjs), so that with the harness loaded first by a preload
-   (node -r, NODE_OPTIONS=--require or an --import) they still run the suite
-   and end its process as they would without one, and a suite that another
-   module requires does not run. A preload of the harness given through
-   NODE_OPTIONS also loads it into the Node processes a suite starts, which
-   inherit the environment, and there the signal listeners above come first:
-   they end a corpus command on a signal before its own listeners can save
-   its report, so such a run is not the run without the preload
-   (web/TESTING.md). */
+   which module is the entry point as they are called, from the main of a
+   require function made then (see watch.cjs), so that with the harness
+   loaded first by a preload (node -r, NODE_OPTIONS=--require or an
+   --import) they still run the suite and end its process as they would
+   without one, and a suite that another module requires does not run. A
+   preload of the harness given through NODE_OPTIONS also loads it into the
+   Node processes a suite starts, which inherit the environment, and there
+   the signal listeners above come first: they end a corpus command on a
+   signal before its own listeners can save its report, so such a run is not
+   the run without the preload (web/TESTING.md). */
 function main(module_, run) {
-  if (process.mainModule === module_)
+  if (require("node:module").createRequire(__filename).main === module_)
     run().catch((error) => { console.error(error); process.exitCode = 1; }).finally(() => exitIfUnclosed(module_));
 }
 
