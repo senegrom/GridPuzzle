@@ -1,11 +1,39 @@
 /* Real DOM, session and Pyodide regressions. Scanner outputs are deterministic. */
 const assert = require("node:assert/strict");
 const { serve, engines, main } = require("./harness.cjs");
+const { READ_LIMIT, readWithin } = require("./watch.cjs");
 async function ready(page) {
   await page.waitForSelector('body[data-ready="true"]');
   await page.evaluate(async () => { window.repairApp = await import("./app.js"); });
 }
-async function importRegressions(page) {
+// Runs `step`, then `putBack`, the page call that puts the page back for the
+// steps after it, as the step's finally did, with the step's own failure
+// first, as live_camera_regressions.cjs does for its own steps. The call has
+// READ_LIMIT (watch.cjs), since Playwright gives page.evaluate() no timeout:
+// a page that will not answer, as in the WebKit hang or with its main thread
+// kept busy (web/TESTING.md), cannot hold the run there. A call still waiting
+// at the limit is named in the engine's report's `readsCutShort`, as
+// `<name>: no answer within 19.9 s`, and one that fails in its
+// `stepCleanupErrors`, as `<name>: <its error>`; each list is made when it
+// first gets one. After a step that failed, its own failure is what is
+// thrown, whatever the call did. After a step that passed, a call cut short
+// fails it, with that line as its failure, since the page was not put back
+// for the steps after it, and a call that fails fails it with its own error,
+// as it always did.
+async function stepThenPutBack(report, name, step, putBack) {
+  let failed = false, failure;
+  try { await step(); } catch (error) { failed = true; failure = error; }
+  const { values: { [name]: rejected }, cutShort } = await readWithin({
+    [name]: [async () => { try { await putBack(); } catch (error) { return { error }; } }, undefined],
+  }, READ_LIMIT);
+  if (cutShort.length) report.readsCutShort = [...(report.readsCutShort ?? []), ...cutShort];
+  if (rejected) report.stepCleanupErrors = [...(report.stepCleanupErrors ?? []),
+    `${name}: ${rejected.error?.message || String(rejected.error)}`];
+  if (failed) throw failure;
+  if (cutShort.length) throw new Error(cutShort[0]);
+  if (rejected) throw rejected.error;
+}
+async function importRegressions(page, report) {
   const before = await page.evaluate(() => repairApp.getState().puzzle);
   const latin = { type: "latinsquare", rows: 2, cols: 2, cells: [null, null, null, null] };
   await page.evaluate(() => {
@@ -16,7 +44,8 @@ async function importRegressions(page) {
       return originalImportText.call(this);
     };
   });
-  try {
+  // The page's own file reading goes back after the step (stepThenPutBack()).
+  await stepThenPutBack(report, "file reading after held imports", async () => {
     for (const late of ["success", "error"]) {
       for (const newer of ["oversized file", "oversized draft", "invalid JSON draft", "invalid puzzle draft"]) {
         await page.evaluate(() => { window.heldImport = null; });
@@ -45,9 +74,7 @@ async function importRegressions(page) {
         assert.equal(await page.textContent("#status-text"), message, `${newer}: stale status`);
       }
     }
-  } finally {
-    await page.evaluate(() => { File.prototype.text = originalImportText; });
-  }
+  }, () => page.evaluate(() => { File.prototype.text = originalImportText; }));
   for (const black of [null, false, 0, ""]) {
     await page.fill("#json-data", JSON.stringify({ ...latin, black }));
     await page.click("#apply-json");
@@ -110,7 +137,24 @@ async function cell(page, index, value) {
   await page.click("#save-cell");
   await page.waitForFunction(() => !document.getElementById("cell-dialog").open);
 }
-async function exercise(page, base) {
+// A real 6000x6000 lossless WebP with resized decoding unavailable must not
+// fall back to full decoding. Then the page's createImageBitmap and
+// Image.prototype.decode go back (stepThenPutBack()).
+async function oversizedWebp(page, report) {
+  await page.evaluate(() => {
+    window.repairBitmap = window.createImageBitmap;
+    window.repairDecode = Image.prototype.decode;
+    window.repairFullDecodes = 0;
+    window.createImageBitmap = async () => { throw Error("Resized decoder unavailable"); };
+    Image.prototype.decode = function () { window.repairFullDecodes++; return repairDecode.call(this); };
+  });
+  await stepThenPutBack(report, "image decoding after an oversized WebP", async () => {
+    await page.setInputFiles("#photo-file", { name: "oversized.webp", mimeType: "image/webp", buffer: Buffer.from("524946461e000000574542505650384c110000002f6fd7db0507d0fffef7bfff8188e87f0000", "hex") });
+    await page.waitForFunction(() => document.getElementById("status-text").textContent.includes("cannot downscale"));
+    assert.equal(await page.evaluate(() => repairFullDecodes), 0);
+  }, () => page.evaluate(() => { window.createImageBitmap = repairBitmap; Image.prototype.decode = repairDecode; }));
+}
+async function exercise(page, base, report) {
   await page.goto(base); await ready(page); await scan(page);
   const pending = await page.evaluate(() => repairApp.getState());
   assert.deepEqual(pending.blackReadings, [{ cell: 4, value: 3 }]);
@@ -145,21 +189,7 @@ async function exercise(page, base) {
   assert.equal(await page.locator("#undo").isEnabled(), true);
   await page.click("#undo");
   assert.equal(await page.evaluate(() => repairApp.getState().puzzle.cells[0]), 2);
-  // Real 6000x6000 lossless WebP: unavailable resizing must not fall back to full decoding.
-  await page.evaluate(() => {
-    window.repairBitmap = window.createImageBitmap;
-    window.repairDecode = Image.prototype.decode;
-    window.repairFullDecodes = 0;
-    window.createImageBitmap = async () => { throw Error("Resized decoder unavailable"); };
-    Image.prototype.decode = function () { window.repairFullDecodes++; return repairDecode.call(this); };
-  });
-  try {
-    await page.setInputFiles("#photo-file", { name: "oversized.webp", mimeType: "image/webp", buffer: Buffer.from("524946461e000000574542505650384c110000002f6fd7db0507d0fffef7bfff8188e87f0000", "hex") });
-    await page.waitForFunction(() => document.getElementById("status-text").textContent.includes("cannot downscale"));
-    assert.equal(await page.evaluate(() => repairFullDecodes), 0);
-  } finally {
-    await page.evaluate(() => { window.createImageBitmap = repairBitmap; Image.prototype.decode = repairDecode; });
-  }
+  await oversizedWebp(page, report);
   const before = await page.evaluate(() => repairApp.getState().puzzle);
   await page.evaluate(() => document.getElementById("data-editor").open = true);
   await page.fill("#json-data", JSON.stringify({ type: "kenken", rows: 2, cols: 2, cells: [1, 2, 2, 1],
@@ -192,12 +222,12 @@ async function playPhotoRegressions(page) {
 async function run() {
   const server = await serve({ pages: true });
   try {
-    await engines("scanner-repairs.json", async (page) => {
-      await exercise(page, server.base); await playPhotoRegressions(page); await importRegressions(page);
+    await engines("scanner-repairs.json", async (page, report) => {
+      await exercise(page, server.base, report); await playPhotoRegressions(page); await importRegressions(page, report);
     });
   } finally {
     server.close();
   }
 }
-module.exports = { run };
+module.exports = { run, stepThenPutBack, importRegressions, oversizedWebp };
 main(module, run);
