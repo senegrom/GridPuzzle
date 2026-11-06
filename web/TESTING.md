@@ -767,50 +767,66 @@ fixture's engine started, its own failure coming 80.2 s and 160.6 s after the
 first, and the `exit` event 240.6 s after it. `live_recovery` did as
 `live_noise` did in each of its two scenes, on a browser each, the second
 scene's failure coming 80.3 s after the first and the `exit` event 160.3 s
-after it. `browser_smoke` was not measured so: there a page that never answers
-fails the screenshot, which has the page's 20 seconds, or then the `#status`
-read, by its own 20 seconds, and either leaves the page unread, as it always
-did, so that only a page that answered both and then stopped could hold that
-run. With nothing sabotaged, in one run each at master and here, at 43 to 100%
-CPU, each of the six passed in Chromium at master and here, `external_replay`
-at master in a second run, its first having timed out at `body[data-ready]` in
-Chromium on its third fixture; `browser_smoke` and `solver_update` passed in
-WebKit too, and the four live suites failed in WebKit at their first step, as
-on Windows (above), with the same reads in WebKit's reports at master and here
-and an empty `readsCutShort` here. `web/tests/suite-reads.test.js` checks the
-page timeouts the limit is measured against above: `browser_smoke`'s 20
-seconds, a tenth of a second over `READ_LIMIT`, the 60 that four suites ask
-`engines()` for, and no timeout of its own in `solver_update`. It runs the
-reads that `live_motion`, `live_noise`, `live_recovery` and `external_replay`
-export for it (`readAfterFailure()` and `stopMotion()`, `finalAndStop()` and
-`stopReplay()`) on a stand-in page that answers, fails at once or as the call
-is made, or never answers, with the timers mocked: the answers kept as they
-came and the fallbacks as before; each wait ending `READ_LIMIT` after it began,
-not a millisecond before; the reads cut short named, `live_motion`'s stop after
-its state; and the stop asked only once the snapshot has settled, never when it
-does not, with one limit for both even when the snapshot answers late. Then it
-runs each of the six suites as it is, in a process of its own, on a stand-in
-for Playwright whose page fails the suite's first step in its `try`: each
-engine's report has the suite's own failure, the reads' answers or fallbacks
-and `readsCutShort`; each read is asked for once, in the suite's order, before
-the harness's failure screenshot or after `browser_smoke`'s own, and the
-browser's close comes last; the run ends by itself; and its timers of
-`READ_LIMIT`'s length, which last a tenth of a second there, are counted, one
-for each `catch` or `finally` that reads, in each engine. The rows are reads
-that all answer, all fail or none answer, the last also with a browser that
-will not close, and in each suite with two reads one that answers or fails
-while the other never does; and `external_replay` still fails an engine whose
-stop says the replay still runs. The four suites whose `finally` reads also
-play their steps through to a pass, which reads that answer, fail or never
-answer in their `finally` all keep, with nothing read in a `catch`. Last come
-engines that never reach the reads, whose reports have none of their fields and
-no `readsCutShort`: one whose `newPage()` rejects, in `solver_update` and
-`browser_smoke`, whose next engine still reads its page; one in `browser_smoke`
-whose failure's screenshot fails, which leaves the page unread as it always
-did; and a page that never gets ready, which `live_noise`, `live_recovery`,
-with no record for its scene, and `external_replay` wait for before their
-`try`, while `live_motion`, which waits for it inside its `try`, still reads
-it.
+after it. `browser_smoke` was not measured so, since there such a page fails
+the screenshot, which has the page's 20 seconds, or then the `#status` read, by
+its own 20 seconds, and either leaves the page unread, as it always did: only a
+page that answers both and then never answers the state can hold that run. So
+its first step was made to fail with the page's main thread left free and its
+`window.__gridpuzzleTestState()` made never to settle, one run of each: as it
+was, at 33 to 75% CPU, the screenshot and the `#status` read answered within a
+tenth of a second of the failure and the run was still waiting in the state
+read when it was stopped, as last sampled 89.2 s after the failure, with no
+report (at master in a second run, the first having failed earlier, at its
+first `body[data-ready]` wait, by its 20 seconds); as it is now, at 8 to 15%
+CPU, it ended by itself with exit code 1, its `exit` event 20.0 s after the
+failure, its report written with the text of `#status`, no `state`, and the
+state read alone in `readsCutShort`. And with `external_replay`'s steps left to
+pass and its stop made never to answer, one run of each: as it was, at 16 to
+78% CPU, the run was still waiting in the first fixture's stop when it was
+stopped, as last sampled 86.5 s after the stop was asked, with no report; as it
+is now, at 33 to 98% CPU, all three fixtures passed, each with `closed` null,
+its three checks of it skipped and the stop in `readsCutShort`, and the run
+ended by itself with exit code 0, its `exit` event 65.6 s after the first
+fixture's stop was asked. With nothing sabotaged, in one run each at master and
+here, at 43 to 100% CPU, each of the six passed in Chromium at master and here,
+`external_replay` at master in a second run, its first having timed out at
+`body[data-ready]` in Chromium on its third fixture; `browser_smoke` and
+`solver_update` passed in WebKit too, and the four live suites failed in WebKit
+at their first step, as on Windows (above), with the same reads in WebKit's
+reports at master and here and an empty `readsCutShort` here.
+`web/tests/suite-reads.test.js` checks the page timeouts the limit is measured
+against above: `browser_smoke`'s 20 seconds, a tenth of a second over
+`READ_LIMIT`, the 60 that four suites ask `engines()` for, and no timeout of
+its own in `solver_update`. It runs the reads that `live_motion`, `live_noise`,
+`live_recovery` and `external_replay` export for it (`readAfterFailure()` and
+`stopMotion()`, `finalAndStop()` and `stopReplay()`) on a stand-in page that
+answers, fails at once or as the call is made, or never answers, with the
+timers mocked: the answers kept as they came and the fallbacks as before; each
+wait ending `READ_LIMIT` after it began, not a millisecond before; the reads
+cut short named, `live_motion`'s stop after its state; and the stop asked only
+once the snapshot has settled, never when it does not, with one limit for both
+even when the snapshot answers late. Then it runs each of the six suites as it
+is, in a process of its own, on a stand-in for Playwright whose page fails the
+suite's first step in its `try`: each engine's report has the suite's own
+failure, the reads' answers or fallbacks and `readsCutShort`; each read is
+asked for once, in the suite's order, before the harness's failure screenshot
+or after `browser_smoke`'s own, and the browser's close comes last; the run
+ends by itself; and its timers of `READ_LIMIT`'s length, which last a tenth of
+a second there, are counted, one for each `catch` or `finally` that reads, in
+each engine. The rows are reads that all answer, all fail or none answer, the
+last also with a browser that will not close, and in each suite with two reads
+one that answers or fails while the other never does; and `external_replay`
+still fails an engine whose stop says the replay still runs. The four suites
+whose `finally` reads also play their steps through to a pass, which reads that
+answer, fail or never answer in their `finally` all keep, with nothing read in
+a `catch`. Last come engines that never reach the reads, whose reports have
+none of their fields and no `readsCutShort`: one whose `newPage()` rejects, in
+`solver_update` and `browser_smoke`, whose next engine still reads its page;
+one in `browser_smoke` whose failure's screenshot fails, which leaves the page
+unread as it always did; and a page that never gets ready, which `live_noise`,
+`live_recovery`, with no record for its scene, and `external_replay` wait for
+before their `try`, while `live_motion`, which waits for it inside its `try`,
+still reads it.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
