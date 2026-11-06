@@ -61,7 +61,7 @@ the error the run ends with, one line before Playwright's message:
 gives a crash no reason, and the call a crash interrupts fails with `Target
 crashed` in Chromium, but in WebKit with the `Target page, context or browser
 has been closed` of a lost browser's calls: all that `live_noise`'s WebKit
-failure in run 39571397193 said. A lost browser's interrupted call fails
+failure in run 39571397193 said. A lost browser's interrupted call can fail
 before Playwright reports the closes behind it, so a failure that says its
 target is gone (`Target page, context or browser has been closed`, `Target
 crashed` or `Page crashed`) waits for that news, until the browser has
@@ -1008,10 +1008,11 @@ runs, and once every engine has run the first failure is thrown again, so that
 the run ends with exit code 1, all as after a close that fails. When the close
 fails as well, the report keeps the reads' failure, which came first, and the
 close's goes in `cleanupErrors` and is printed after it. A read on a browser
-that has gone fails before Playwright reports what ended (above), so that the
-checks in the `try` of `engines()` find nothing yet; the reads' failure then
-waits for that news, for at most a second, as a failure that says its target is
-gone waits in the `catch`, and what ended leads it. A failure of the suite's
+that has gone can fail before Playwright reports what ended (above); the checks
+in the `try` of `engines()` then find nothing yet, and the reads' failure waits
+for that news, for at most a second, as a failure that says its target is gone
+waits in the `catch`, and is led by what ended. When the news comes first, the
+`try` fails the engine, as for any lost browser. A failure of the suite's
 steps, an uncaught page error, or a page or the browser lost fails the engine
 in that `try`, as it always has, with the failure's screenshot, and the two
 lists, which still name the reads, add nothing to it; reads in a `catch` keep
@@ -1154,9 +1155,10 @@ first engine's failure, also when both fail so; with a close that never settles
 or rejects as well, the report keeps the reads' failure, the close's is in
 `cleanupErrors` and printed after it, and the run still ends; and a read that
 failed as the browser went away fails the engine once the disconnection has
-come, led by it. With the suite's own failure, an uncaught page error or a
-crash as well, the engine fails with that, with its screenshot and nothing
-printed of the reads; those rows pass on the harness as it was too.
+come, led by it. With the suite's own failure, an uncaught page error, a crash
+or the browser's disconnection before the reads failed as well, the engine
+fails with that, with its screenshot and nothing printed of the reads; those
+rows pass on the harness as it was too.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong

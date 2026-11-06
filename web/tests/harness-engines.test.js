@@ -13,11 +13,12 @@ import { createRequire } from 'node:module';
 // fails, in engines()' finally, beside the browser's close, with the reads
 // named and no failure screenshot; its report is written, its browser
 // closed, the next engine run and the first failure thrown again at the end.
-// A suite's own failure, an uncaught page error and a page lost still fail
-// the engine first, with their screenshot, as before; a close that fails
-// too stays in cleanupErrors, after the reads' failure. The suite runs as
-// the suites do, through main(), in a process of its own, on a stand-in for
-// Playwright; loading the harness needs neither Playwright nor Python.
+// A suite's own failure, an uncaught page error and a page or the browser
+// lost still fail the engine first, with their screenshot, as before; a
+// close that fails too stays in cleanupErrors, after the reads' failure.
+// The suite runs as the suites do, through main(), in a process of its own,
+// on a stand-in for Playwright; loading the harness needs neither
+// Playwright nor Python.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 
@@ -59,14 +60,15 @@ main(module, () => engines("stand-in.json", async (page, report, name) => {
 
 // Playwright for that suite, with the events Playwright's objects have,
 // which watch() listens to: the page's evaluate("pageerror") makes it throw
-// an uncaught error, evaluate("crash") crashes it and evaluate("lose") makes
-// the browser disconnect 30 ms later, as a browser that goes away is
-// reported after the calls it interrupted fail. The page says on stdout when
-// it takes a screenshot, which it writes, and the browser when it is asked
-// to close; with `close` "hangs" in PLAN its close never settles, as while a
-// WebKit child holds the browser's pipes, and with "rejects" it rejects.
-// Each launch keeps the process alive until its browser closes, as a live
-// browser's pipes do.
+// an uncaught error, evaluate("crash") crashes it, evaluate("lose") makes the
+// browser disconnect 30 ms later, as a browser that goes away can be
+// reported after the calls it interrupted fail, and evaluate("disconnect")
+// makes it disconnect at once, as one can be reported before them. The page
+// says on stdout when it takes a screenshot, which it writes, and the
+// browser when it is asked to close; with `close` "hangs" in PLAN its close
+// never settles, as while a WebKit child holds the browser's pipes, and with
+// "rejects" it rejects. Each launch keeps the process alive until its
+// browser closes, as a live browser's pipes do.
 const PLAYWRIGHT = `const fs = require("node:fs");
 const { EventEmitter } = require("node:events");
 const plans = JSON.parse(process.env.PLAN);
@@ -79,7 +81,9 @@ const engine = (name) => ({ async launch() {
     evaluate: async (what) => {
       if (what === "pageerror") page.emit("pageerror", new Error("stand-in: an uncaught page error"));
       if (what === "crash") page.emit("crash", page);
-      if (what === "lose") setTimeout(() => { connected = false; browser.emit("disconnected", browser); }, 30);
+      const disconnect = () => { connected = false; browser.emit("disconnected", browser); };
+      if (what === "lose") setTimeout(disconnect, 30);
+      if (what === "disconnect") disconnect();
     },
     screenshot: async ({ path }) => { say("takes a screenshot"); fs.writeFileSync(path, ""); } });
   Object.assign(context, { pages: () => [], close: async () => {},
@@ -189,10 +193,11 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
       assert.equal(endedWith(stderr), failure, stderr);
     });
 
-  // A read on a browser that has gone fails before Playwright reports what
-  // ended, so that the try's check has found nothing: the failure waits for
-  // that news, as the catch's does for a failure that says its target is
-  // gone, and what ended leads it.
+  // A read on a browser that has gone can fail before Playwright reports
+  // what ended, so that the try's check has found nothing: the failure waits
+  // for that news, as the catch's does for a failure that says its target is
+  // gone, and what ended leads it. (When the news comes first, the try fails
+  // the engine: see below.)
   test('a read that failed as its browser went away fails the engine once the news has come, led by what ended', async (t) => {
     const gone = 'closed: page.evaluate: Target page, context or browser has been closed';
     const { code, killed, stdout, stderr, lines, reports, shot } = await ran(t, { chromium: { event: 'lose', readsFailed: [gone] }, webkit: {} });
@@ -207,18 +212,20 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
 });
 
 // What fails an engine first stays first, as before the reads' failure came
-// to engines(): the suite's own failure, an uncaught page error and a page
-// lost, each found in the try, which take the failure screenshot, while the
-// report still names the reads. The engine has failed then, and the reads
-// change nothing more. These rows check what has not changed, so that they
-// pass on the harness as it was too.
-describe('engines() keeps a suite\'s own failure, a page error and a page lost first, as before', { concurrency: true }, () => {
+// to engines(): the suite's own failure, an uncaught page error, a page lost
+// and a browser lost whose news came before the reads failed, each found in
+// the try, which take the failure screenshot, while the report still names
+// the reads. The engine has failed then, and the reads change nothing more.
+// These rows check what has not changed, so that they pass on the harness as
+// it was too.
+describe('engines() keeps a suite\'s own failure, a page error and a page or browser lost first, as before', { concurrency: true }, () => {
   const reads = { readsCutShort: [CUT], readsFailed: [FAILED] };
+  const lost = 'AssertionError [ERR_ASSERTION]: chromium: a page crashed or closed, or the browser disconnected';
   for (const [what, plan, failure] of [
     ['steps failed', { throws: 'expected 3 clues' }, 'Error: expected 3 clues'],
     ['page threw an uncaught error', { event: 'pageerror' }, 'AssertionError [ERR_ASSERTION]: chromium: uncaught page errors'],
-    ['page crashed', { event: 'crash' },
-      'page crashed N s after launch (http://stand-in/)\nAssertionError [ERR_ASSERTION]: chromium: a page crashed or closed, or the browser disconnected'],
+    ['page crashed', { event: 'crash' }, `page crashed N s after launch (http://stand-in/)\n${lost}`],
+    ['browser disconnected', { event: 'disconnect' }, `browser disconnected N s after launch\n${lost}`],
   ])
     test(`an engine whose ${what} fails with that, with its screenshot, whatever its finally cut short or saw fail`, async (t) => {
       const { code, killed, stdout, stderr, lines, reports, shot } = await ran(t, { chromium: { ...plan, ...reads }, webkit: {} });

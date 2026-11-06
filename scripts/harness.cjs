@@ -228,9 +228,11 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
       // passed fail the engine here, beside the close and as a close that
       // fails does, with no screenshot (web/TESTING.md): only once the try has
       // found no page error and nothing ended, so that those fail it first.
-      // A read on a browser that has gone fails before Playwright reports
-      // what ended (watch()), so the failure waits for that news, as the
-      // catch's does, and what ended leads it.
+      // A read on a browser that has gone can fail before Playwright reports
+      // what ended (watch()), and the try then finds nothing yet: the failure
+      // waits for that news, for at most a second, as the catch's does, and
+      // what ended leads it. When the news comes first, the try has failed
+      // the engine, as for any lost browser.
       const unread = [].concat(report.readsCutShort ?? [], report.readsFailed ?? []);
       if (unread.length && report.status === "passed") {
         const error = await watched.lead(new Error(`${name}: ${unread.join("; ")}`));
