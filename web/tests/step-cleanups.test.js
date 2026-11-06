@@ -6,15 +6,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-// The page calls in the finally of a step that put the page back for the
-// steps after it, in live_camera, browser_regressions and scanner_repair,
-// which go through watch.cjs's readWithin() with READ_LIMIT, the step's own
-// failure first: each suite's stepThenPutBack() on its own; each of the ten
-// steps that have such a call, played on a stand-in page that passes the step
-// or fails it and then answers the call, fails it, throws as it is called or
-// never answers; the report each suite hands those steps; and live_camera run
-// as it is, in a process of its own, on a stand-in for Playwright whose page
-// plays its first step. Loading watch.cjs or a suite needs no Playwright.
+// The page calls that put the page back after a step, for the steps after
+// it, in live_camera, browser_regressions and scanner_repair (each once in
+// its step's finally), which go through watch.cjs's readWithin() with
+// READ_LIMIT, the step's own failure first: each suite's stepThenPutBack() on
+// its own; each of the ten steps that have such a call, played on a stand-in
+// page that passes the step or fails it and then answers the call, fails it,
+// throws as it is called or never answers; the report each suite hands those
+// steps; and live_camera run as it is, in a process of its own, on a stand-in
+// for Playwright whose page plays its first step. Loading watch.cjs or a
+// suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 const camera = require('../../scripts/live_camera_regressions.cjs');
@@ -54,6 +55,9 @@ function outcomeOf(running) {
   return seen;
 }
 
+// Each report starts with the empty cleanupErrors that engines() gives it,
+// which keeps only the closes that failed: a call that puts the page back and
+// fails goes in stepCleanupErrors, never there.
 describe('stepThenPutBack(), the same in each of the three suites', () => {
   for (const [suite, { stepThenPutBack }] of Object.entries(SUITES)) {
     // A step that passes or fails, and a call that puts the page back as `way`
@@ -72,11 +76,11 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
     test(`${suite}: a step that passes and a call that answers: nothing is thrown, the report gets nothing, and nothing waits`, async (t) => {
       const counted = limitsCounted(t);
       try {
-        const events = [], report = { browser: 'chromium' };
+        const events = [], report = { browser: 'chromium', cleanupErrors: [] };
         const seen = outcomeOf(stepThenPutBack(report, 'viewport', ...play(true, 'answer', events)));
         await tick();
         assert.deepEqual(seen.outcome, { value: undefined });
-        assert.deepEqual(report, { browser: 'chromium' }, 'no list made for nothing');
+        assert.deepEqual(report, { browser: 'chromium', cleanupErrors: [] }, 'no list made for nothing');
         assert.deepEqual(events, ['step', 'put back']);
         assert.equal(counted.limits, 1, 'the call has READ_LIMIT');
       } finally { counted.restore(); }
@@ -86,11 +90,11 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
       test(`${suite}: after a pass, a call that ${way === 'reject' ? 'rejects' : 'throws as it is called'} fails the step with its own error, as it always did, and is kept in stepCleanupErrors`, async (t) => {
         const counted = limitsCounted(t);
         try {
-          const events = [], report = {};
+          const events = [], report = { cleanupErrors: [] };
           const seen = outcomeOf(stepThenPutBack(report, 'viewport', ...play(true, way, events)));
           await tick();
           assert.equal(seen.outcome?.error, CALL_FAILED);
-          assert.deepEqual(report, { stepCleanupErrors: [`viewport: ${CALL_FAILED.message}`] });
+          assert.deepEqual(report, { cleanupErrors: [], stepCleanupErrors: [`viewport: ${CALL_FAILED.message}`] });
           assert.equal(counted.limits, 1);
         } finally { counted.restore(); }
       });
@@ -98,7 +102,7 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
     test(`${suite}: after a pass, a call that never answers fails the step READ_LIMIT after it was asked, with its name as the failure, and is named in readsCutShort`, async (t) => {
       const counted = limitsCounted(t);
       try {
-        const events = [], report = {};
+        const events = [], report = { cleanupErrors: [] };
         const seen = outcomeOf(stepThenPutBack(report, 'viewport', ...play(true, 'never', events)));
         await tick();
         t.mock.timers.tick(READ_LIMIT - 1); await tick();
@@ -106,7 +110,7 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
         t.mock.timers.tick(1); await tick();
         assert.ok(seen.outcome?.error instanceof Error, 'it fails');
         assert.equal(seen.outcome.error.message, CUT_SHORT('viewport'), 'with the name as its failure');
-        assert.deepEqual(report, { readsCutShort: [CUT_SHORT('viewport')] });
+        assert.deepEqual(report, { cleanupErrors: [], readsCutShort: [CUT_SHORT('viewport')] });
         assert.equal(counted.limits, 1);
       } finally { counted.restore(); }
     });
@@ -115,7 +119,7 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
       test(`${suite}: after a step's own failure, a call that ${{ answer: 'answers', reject: 'rejects', throws: 'throws as it is called', never: 'never answers' }[way]} still comes, and the step's own failure is what is thrown`, async (t) => {
         const counted = limitsCounted(t);
         try {
-          const events = [], report = {};
+          const events = [], report = { cleanupErrors: [] };
           const seen = outcomeOf(stepThenPutBack(report, 'camera', ...play(false, way, events)));
           await tick();
           if (way === 'never') {
@@ -125,8 +129,8 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
           }
           assert.equal(seen.outcome?.error, STEP_FAILED, 'the step\'s own failure first');
           assert.deepEqual(events, ['step', 'put back'], 'the page is still put back');
-          assert.deepEqual(report, way === 'never' ? { readsCutShort: [CUT_SHORT('camera')] }
-            : way === 'answer' ? {} : { stepCleanupErrors: [`camera: ${CALL_FAILED.message}`] });
+          assert.deepEqual(report, { cleanupErrors: [], ...(way === 'never' ? { readsCutShort: [CUT_SHORT('camera')] }
+            : way === 'answer' ? {} : { stepCleanupErrors: [`camera: ${CALL_FAILED.message}`] }) });
           assert.equal(counted.limits, 1);
         } finally { counted.restore(); }
       });
@@ -134,17 +138,19 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
     test(`${suite}: the lists keep what is in them already, and a failure that is no Error is still the step's`, async (t) => {
       const counted = limitsCounted(t);
       try {
-        const report = { readsCutShort: ['storageStatus: no answer within 19.9 s'], stepCleanupErrors: ['camera: earlier'] };
+        const report = { cleanupErrors: ['context: earlier'], readsCutShort: ['storageStatus: no answer within 19.9 s'],
+          stepCleanupErrors: ['camera: earlier'] };
         const seen = outcomeOf(stepThenPutBack(report, 'viewport', async () => { throw 'a string'; }, () => Promise.reject('no Error either')));
         await tick();
         assert.equal(seen.outcome?.error, 'a string');
-        assert.deepEqual(report, { readsCutShort: ['storageStatus: no answer within 19.9 s'],
+        assert.deepEqual(report, { cleanupErrors: ['context: earlier'], readsCutShort: ['storageStatus: no answer within 19.9 s'],
           stepCleanupErrors: ['camera: earlier', 'viewport: no Error either'] });
         const cut = outcomeOf(stepThenPutBack(report, 'turn', async () => {}, () => new Promise(() => {})));
         await tick();
         t.mock.timers.tick(READ_LIMIT); await tick();
         assert.equal(cut.outcome?.error?.message, CUT_SHORT('turn'));
         assert.deepEqual(report.readsCutShort, ['storageStatus: no answer within 19.9 s', CUT_SHORT('turn')]);
+        assert.deepEqual(report.cleanupErrors, ['context: earlier']);
       } finally { counted.restore(); }
     });
 
@@ -206,13 +212,14 @@ const PUZZLE = { type: 'sudoku', rows: 9, cols: 9, cells: [5, 3, null, null, 7] 
 const LAYOUT = { viewfinder: 400, row: 48, rowOverflow: false, shutter: { top: 500, width: 140, height: 48 },
   clear: { top: 500, right: 300, width: 140, height: 48 }, start: { bottom: 450 }, panel: { right: 320 }, counts: 4, legend: 20, bareLegend: 20 };
 
-// The ten steps whose finally put the page back, each as a test plays it: its
-// suite and the name its call has in the report, how to run it on a page and
-// a report as its suite does, the call that puts the page back, a call inside
-// the step that a failing step fails at, what a page answers for the step to
-// pass, what the suite does after it (`next`: its next call, which then fails
-// with WENT_ON; otherwise it returns, with `check` pushed when it has one),
-// and the mocked time the step itself waits when it passes.
+// The ten steps after which a call puts the page back (once in the step's
+// finally), each as a test plays it: its suite and the name its call has in
+// the report, how to run it on a page and a report as its suite does, the
+// call that puts the page back, a call inside the step that a failing step
+// fails at, what a page answers for the step to pass, what the suite does
+// after it (`next`: its next call, which then fails with WENT_ON; otherwise it
+// returns, with `check` pushed when it has one), and the mocked time the step
+// itself waits when it passes.
 const SITES = [
   { suite: 'live_camera', name: 'viewport after viewfinder layers',
     run: (page, report) => camera.layersAtEachScreen(page, report, 'http://stand-in/'),
@@ -296,14 +303,15 @@ const SITES = [
 ];
 
 // Plays `site` on a stand-in page and a report as its suite starts it, with
-// the step passing or failing and the call that puts the page back answering
-// as `way` says, and checks how it ends: what is thrown, the report, the
-// calls in order, and the one READ_LIMIT the call has, which a call that
-// never answers waits out to the millisecond.
+// engines()'s empty cleanupErrors, with the step passing or failing and the
+// call that puts the page back answering as `way` says, and checks how it
+// ends: what is thrown, the report, the calls in order, and the one
+// READ_LIMIT the call has, which a call that never answers waits out to the
+// millisecond.
 async function check(t, site, passes, way) {
   const counted = limitsCounted(t);
   try {
-    const page = standInPage(site, passes, way), report = { browser: 'chromium', checks: [] };
+    const page = standInPage(site, passes, way), report = { browser: 'chromium', cleanupErrors: [], checks: [] };
     const seen = outcomeOf(site.run(page, report));
     await tick();
     for (const wait of passes ? site.waits ?? [] : []) { t.mock.timers.tick(wait); await tick(); }
@@ -321,11 +329,13 @@ async function check(t, site, passes, way) {
     else if (way !== 'answer') assert.equal(error, CALL_FAILED, 'a pass fails with the call\'s own error, as it always did');
     else if (site.next) assert.equal(error, WENT_ON, 'the suite goes on, as it always did');
     else assert.equal(error, undefined, 'the step passes, as it always did');
-    // The report: the step's own fields and check as before, and the call
-    // named in one list or the other only when it was cut short or failed.
+    // The report: the step's own fields and check as before, the call named
+    // in one list or the other only when it was cut short or failed, and
+    // cleanupErrors left to the closes that failed.
     assert.deepEqual(report.readsCutShort, way === 'never' ? [line] : undefined, 'readsCutShort');
     assert.deepEqual(report.stepCleanupErrors, ['reject', 'throws'].includes(way) ? [`${site.name}: ${CALL_FAILED.message}`] : undefined,
       'stepCleanupErrors');
+    assert.deepEqual(report.cleanupErrors, [], 'cleanupErrors');
     assert.deepEqual(report.checks, passes && way === 'answer' && site.check ? [site.check] : [], 'checks');
     // In order: the step's calls, its failure the last of them, then the call
     // that puts the page back once, and after a pass whose call answered the
@@ -352,12 +362,12 @@ test('browser_regressions: a scan without the fallback has nothing to put back, 
   const counted = limitsCounted(t);
   try {
     const site = SITES.find(({ name }) => name.startsWith('createImageBitmap'));
-    const page = standInPage({ ...site, isPutBack: () => false }, true, 'answer'), report = {};
+    const page = standInPage({ ...site, isPutBack: () => false }, true, 'answer'), report = { cleanupErrors: [] };
     const seen = outcomeOf(regressions.scan(page, report, 'baseline', {}));
     await tick();
     assert.equal(seen.outcome?.error?.name, 'AssertionError', 'it goes on to read the rows, which the stand-in leaves empty');
     assert.deepEqual(page.calls.filter((call) => call.kind === 'evaluate').length, 2, 'the fixture and the board, nothing put back');
-    assert.deepEqual(report, {});
+    assert.deepEqual(report, { cleanupErrors: [] });
     assert.equal(counted.limits, 0);
   } finally { counted.restore(); }
 });
@@ -525,7 +535,7 @@ async function ran(t, env) {
 // Side by side: each has a tree and a process of its own, and in Node 22
 // --test-timeout limits a whole file.
 describe('live_camera, run as it is, puts its viewport back after its first step and then fails as that says', { concurrency: true }, () => {
-  const VIEWPORT = 'viewport after viewfinder layers';
+  const VIEWPORT = 'viewport after viewfinder layers', CLOSED = 'Target page, context or browser has been closed';
   for (const [what, env, failure, cutShort, rejected, chromiumCloses = []] of [
     ['the step passes and the viewport goes back: the second step\'s own failure, as ever', { PUT_BACK: 'answer' },
       'Error: no site here', [], undefined],
@@ -534,7 +544,7 @@ describe('live_camera, run as it is, puts its viewport back after its first step
     ['the step fails and the viewport never goes back: the step\'s own failure, the call named', { PUT_BACK: 'never', STEP_FAILS: true },
       'Error: the first screen size failed', [CUT_SHORT(VIEWPORT)], undefined],
     ['the step fails and putting the viewport back rejects: the step\'s own failure, the call\'s error kept', { PUT_BACK: 'reject', STEP_FAILS: true },
-      'Error: the first screen size failed', [], [`${VIEWPORT}: Target page, context or browser has been closed`]],
+      'Error: the first screen size failed', [], [`${VIEWPORT}: ${CLOSED}`]],
     // As in the WebKit hang: nothing answers, and the browser will not close.
     ['the step fails, nothing answers after it and the browser will not close', { PUT_BACK: 'never', STEP_FAILS: true, READS: 'never', BROWSER_HANGS: true },
       'Error: the first screen size failed', [CUT_SHORT(VIEWPORT), ...Object.keys(ASKED).map(CUT_SHORT)], undefined,
@@ -561,5 +571,8 @@ describe('live_camera, run as it is, puts its viewport back after its first step
       assert.deepEqual(limits, { [READ_LIMIT]: 4, [CLOSE_LIMIT]: 2 }, 'in each engine one limit for putting the viewport back and one for the catch\'s reads');
       assert.equal(/no answer within/.test(stderr), failure.includes('no answer within'),
         'a call cut short is printed only as the failure of a step that passed');
+      // Nor is the call printed otherwise, by its name or its error.
+      for (const text of [VIEWPORT, CLOSED])
+        assert.equal(stderr.includes(text), failure.includes(text), `"${text}" is printed only as the failure of a step that passed`);
     });
 });
