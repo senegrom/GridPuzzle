@@ -66,15 +66,17 @@ before(async () => {
   await tick();
 });
 
-// What `console` prints during one test, each line as it would print it,
-// through its log, info, warn, error, debug, trace and dir, each mocked,
-// which the test's mocks put back as it ends. engines() prints a step's
-// failure; neither the step nor the call that puts its page back prints
-// anything itself.
+// What is printed during one test, each line as it would be printed: through
+// console's log, info, warn, error, debug, trace and dir, each mocked, and
+// straight to stderr, whose write() is mocked too; the test's mocks put them
+// back as it ends. stdout is left alone, since the test runner writes its
+// report there. engines() prints a step's failure; neither the step nor the
+// call that puts its page back prints anything itself.
 function printed(t) {
   const lines = [];
   for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir'])
     t.mock.method(console, method, (...args) => { lines.push(format(...args)); });
+  t.mock.method(process.stderr, 'write', (chunk) => { lines.push(String(chunk)); return true; });
   return lines;
 }
 

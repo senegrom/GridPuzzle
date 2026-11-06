@@ -809,10 +809,10 @@ the names in `readsCutShort` and `stepCleanupErrors`, no list with nothing in
 it, and the empty `cleanupErrors` that each report starts with, as `engines()`
 gives it, left empty; the call that puts the page back asked once, after the
 step's last call; one limit for it, waited out to the millisecond; and nothing
-printed, whatever the call does, with `console` mocked, since `engines()`
-prints the failure. It reads that each suite hands those steps its engine's
-report, and checks that a scan without the fallback sets no limit and that
-`live_camera`'s `catch` keeps a name already in the list. And it runs
+printed, whatever the call does, with `console` and stderr mocked, since
+`engines()` prints the failure. It reads that each suite hands those steps its
+engine's report, and checks that a scan without the fallback sets no limit and
+that `live_camera`'s `catch` keeps a name already in the list. And it runs
 `live_camera` as it is, in a process of its own, on a stand-in for Playwright
 whose page plays the suite's first step, passing it or failing it at its first
 screen size, and fails the second step as it starts, with the timers of
