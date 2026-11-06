@@ -177,8 +177,8 @@ async function begin({ font, race = false }) {
 // the snapshot has answered or failed. Both share READ_LIMIT (watch.cjs), so
 // that a page that will not answer, as in the WebKit hang (web/TESTING.md),
 // cannot hold the run here: `final` is null when the snapshot fails or is cut
-// short, a stop that fails or is cut short changes nothing, and the record's
-// `readsCutShort` names what was cut short.
+// short, a stop that fails changes nothing, and the record's `readsCutShort`
+// names what was cut short, which after a pass fails the engine (run()).
 async function finalAndStop(page, record) {
   let snapshotted; const snapshot = new Promise(resolve => { snapshotted = resolve; });
   const { values, cutShort } = await readWithin({
@@ -195,7 +195,7 @@ async function run() {
     for (const config of [{ font: 'Courier New', race: false }, { font: 'Courier New', race: true }]) {
       const file = `live-recovery-${config.race ? 'race' : 'clear'}.json`;
       try {
-        await engines(file, async (page, report) => {
+        await engines(file, async (page, report, name) => {
           report.cases = [];
           await page.goto(server.base); await page.waitForSelector('body[data-ready="true"]');
           const record = { ...config }; report.cases.push(record);
@@ -281,6 +281,15 @@ async function run() {
           } finally {
             await finalAndStop(page, record);
           }
+          // Reached only after the scene passed, so that a failure stays the
+          // engine's own: a read cut short then fails the engine with the
+          // names, as a browser that would not close fails one that passed
+          // (web/TESTING.md), and the record keeps `ok`, since its checks
+          // passed, with no `failure` of its own. And as with such a close, an
+          // uncaught page error or a page or browser lost fails the engine
+          // instead, through engines()' own checks once this returns. The next
+          // engine and scene run as after any failure.
+          if (record.readsCutShort.length && !report.errors.length && !report.ended.length) throw Error(`${name}: ${record.readsCutShort.join('; ')}`);
         }, { timeout: 60000 });
       } catch (error) { failures.push(error); }
       finally {
