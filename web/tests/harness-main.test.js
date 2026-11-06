@@ -202,16 +202,6 @@ test('no script decides by its own require.main whether another module is the en
   assert.deepEqual(others, []);
 });
 
-// Each line of the code in `source`, comments left out, whose text names
-// mainModule (process.mainModule, process["mainModule"], a destructuring of
-// process), trimmed: a name put together as the code runs, such as
-// process["main" + "Module"], or written with an escape, such as
-// process.main\u004Dodule, is not found. Strings stay, so that a // or /* in
-// one starts no comment.
-const mainModuleReads = (source) => source
-  .replace(/(["'`])(?:\\.|(?!\1)[^\\\r\n])*\1|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
-    (text, quote) => (quote ? text : text.replace(/[^\r\n]/g, ' ')))
-  .split(/\r?\n/).map((line) => line.trim()).filter((line) => /\bmainModule\b/.test(line));
 // The body of `name`, a function declared at the start of a line in `source`.
 const body = (source, name) =>
   new RegExp(String.raw`\nfunction ${name}\([^)]*\) \{\r?\n([\s\S]*?)\r?\n\}`).exec(source)?.[1] ?? '';
@@ -220,27 +210,29 @@ const body = (source, name) =>
 // entry point as the main of a require function made at the call,
 // createRequire(__filename).main, and not through process.mainModule, which
 // Node's documentation deprecates in favour of require.main (DEP0138) but
-// which warns of nothing even under --pending-deprecation, so that only a
-// scan finds it. The stand-ins then start in every way above under
-// --pending-deprecation and --throw-deprecation, where a deprecation warning
-// from what the two read would end the process, with the warning on stderr.
-// Node prints such a warning, or throws it, only once the code that caused
-// it has run on, which can be after exitIfUnclosed() has ended the process:
-// the importer's, which neither function ends, shows one from either.
+// which warns of nothing even under --pending-deprecation, so that only the
+// text of harness.cjs and watch.cjs shows it. The stand-ins then start in
+// every way above under --pending-deprecation and --throw-deprecation, where
+// a deprecation warning from what the two read would end the process, with
+// the warning on stderr. Node prints such a warning, or throws it, only once
+// the code that caused it has run on, which can be after exitIfUnclosed() has
+// ended the process: the importer's, which neither function ends, shows one
+// from either.
 test('main() and exitIfUnclosed() read the entry point through a require function made at the call, not the deprecated process.mainModule, and warn of nothing', async (t) => {
-  await t.test('harness.cjs and watch.cjs read no process.mainModule, and main() and exitIfUnclosed() read createRequire(__filename).main', () => {
-    // What the scan finds, each spelling on a line of its own, and what it
-    // leaves alone: comments. A // or /* in a string starts none, so a read
-    // after one is found.
-    assert.deepEqual(mainModuleReads('/* process.mainModule\n   process.mainModule */ const a = "//", b = \'/*\';\n'
-      + 'if (process.mainModule === m) x(); // process.mainModule\nconst { mainModule } = process;\ny(process["mainModule"]);\n'
-      + 'const u = "http://x"; if (process.mainModule) y();\nconst c = \'/*\'; z(process.mainModule); const d = \'*/\';\n'),
-    ['if (process.mainModule === m) x();', 'const { mainModule } = process;', 'y(process["mainModule"]);',
-      'const u = "http://x"; if (process.mainModule) y();', 'const c = \'/*\'; z(process.mainModule); const d = \'*/\';']);
-    for (const [file, name] of [['scripts/harness.cjs', 'main'], ['scripts/watch.cjs', 'exitIfUnclosed']]) {
-      assert.deepEqual(mainModuleReads(read(file)), [], `${file} reads process.mainModule`);
+  await t.test('harness.cjs and watch.cjs name no mainModule, and main() and exitIfUnclosed() read createRequire(__filename).main', () => {
+    // Neither file names mainModule anywhere, in code, a string or a comment,
+    // so that a read of process.mainModule is found without telling code
+    // from the rest; its history is in web/TESTING.md. Only a read whose text
+    // does not spell the name out gets past, such as one that computes it as
+    // the code runs, process["main" + "Module"], or writes it with an escape,
+    // process.main\u004Dodule.
+    const files = [['scripts/harness.cjs', 'main'], ['scripts/watch.cjs', 'exitIfUnclosed']];
+    const named = files.flatMap(([file]) => read(file).split(/\r?\n/)
+      .flatMap((line, index) => (line.includes('mainModule') ? [`${file}:${index + 1}`] : [])));
+    assert.deepEqual(named, [], `mainModule at ${named.join(', ')}: main() and exitIfUnclosed() read createRequire(__filename).main,`
+      + " as the owner chose on 2026-11-05, and process.mainModule's history belongs in web/TESTING.md, not in a comment there");
+    for (const [file, name] of files)
       assert.match(body(read(file), name), /\bcreateRequire\(__filename\)\.main\b/, `${name}() in ${file}`);
-    }
   });
   const flags = ['--pending-deprecation', '--throw-deprecation'];
   for (const [what, loaded, scripts, expected] of [
