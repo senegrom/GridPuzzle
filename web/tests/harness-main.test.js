@@ -203,9 +203,10 @@ test('no script decides by its own require.main whether another module is the en
 });
 
 // Each line of the code in `source`, comments left out, that names
-// mainModule in any spelling (process.mainModule, process["mainModule"], a
-// destructuring of process), trimmed. Strings stay, so that a // or /* in
-// one starts no comment.
+// mainModule (process.mainModule, process["mainModule"], a destructuring of
+// process), trimmed; a name put together as the code runs, such as
+// process["main" + "Module"], is not found. Strings stay, so that a // or /*
+// in one starts no comment.
 const mainModuleReads = (source) => source
   .replace(/(["'`])(?:\\.|(?!\1)[^\\\r\n])*\1|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
     (text, quote) => (quote ? text : text.replace(/[^\r\n]/g, ' ')))

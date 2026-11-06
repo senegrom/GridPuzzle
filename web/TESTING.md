@@ -184,10 +184,13 @@ entry point only when Node's CommonJS loader loads it, not when an `--import`
 has the ESM loader do so.
 `web/tests/harness-main.test.js` checks this with stand-in suites, started as
 they are, through a link to their folder and with the harness or `watch.cjs`
-loaded first in six ways, and required or imported by a runner; it also finds
-any read of `process.mainModule` in the harness or `watch.cjs` by a scan, and
-starts those suites under `--pending-deprecation` and `--throw-deprecation`,
-where a deprecation warning would end them.
+loaded first in six ways, and required or imported by a runner. It also finds
+by a scan any code in the harness or `watch.cjs` that names `mainModule`, and
+starts those suites and runners under `--pending-deprecation` and
+`--throw-deprecation`, where a deprecation warning from either read ends a
+process that neither function ends, such as that of the ES module that imports
+the suites: Node gives such a warning only once the code that raised it has
+run on, by which time `exitIfUnclosed()` may have ended the process.
 `corpus/benchmark-runner.cjs` shares the timed clean-up, with this limit, or a
 shorter one once a signal has come ("Puzzle image corpus and benchmarks"), and
 this end of the process: a browser its clean-up gives up on is marked with
