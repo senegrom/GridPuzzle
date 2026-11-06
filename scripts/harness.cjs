@@ -1,7 +1,8 @@
 /* What every browser suite otherwise repeats: a server for the built site,
-   the two mobile engines, one report per engine, a screenshot on failure, a
-   close that cannot wait for ever, temporary directories that go as the
-   process exits, on a signal too, and the exit code. */
+   the two mobile engines, one report per engine, a screenshot when a suite
+   fails or its pages throw or end, a close that cannot wait for ever,
+   temporary directories that go as the process exits, on a signal too, and
+   the exit code. */
 const assert = require("node:assert/strict");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -181,14 +182,16 @@ function baselineSite(commit, files) {
    else watch() records, which also leads the failure; an engine that fails
    so, or whose suite throws, gets a screenshot, and every engine runs before
    the first failure is rethrown. An engine that passed still fails, with no
-   screenshot, when its report names reads of the page that the suite's
-   finally cut short or saw fail, in `readsCutShort` and `readsFailed` as
-   watch.cjs's readWithin() spells them: the error names them after the
-   engine's name, those cut short first. And a close that rejects or runs
-   past watch.cjs's CLOSE_LIMIT (or `closeLimit` ms) adds its failure to the
-   report's cleanupErrors and fails the engine if nothing else did; a failure
-   before it stays first, and the report is written and the next engine run
-   all the same. `report` starts as
+   screenshot, when its report names anything in `readsCutShort` or
+   `readsFailed`, whoever put it there: the lists of the reads of its page
+   that watch.cjs's readWithin() cut short or saw fail, as it spells them,
+   which a suite fills after its steps have passed only in its finally (a
+   read in a catch, or a call that puts the page back cut short, comes with
+   a failure). The error names them after the engine's name, those cut short
+   first. And a close that rejects or runs past watch.cjs's CLOSE_LIMIT (or
+   `closeLimit` ms) adds its failure to the report's cleanupErrors and fails
+   the engine if nothing else did; a failure before it stays first, and the
+   report is written and the next engine run all the same. `report` starts as
    { browser, version, errors, ended, cleanupErrors } (the first two lists as
    watch() records them, for the browser and every context and page the suite
    opens on it); the suite adds what it measures. */
