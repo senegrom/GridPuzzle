@@ -1091,16 +1091,17 @@ page's main thread kept busy for good from the first fixture's stop on instead,
 so that the page answered nothing more, one run of each: with the rule in the
 suites, at 78 to 100% CPU, that fixture's failure's screenshot began 21.3 s
 after the stop was asked and ran out of the page's 60 s, failing 60.3 s later,
-the browser's close began 81.6 s after the stop was asked and the next
-fixture's page started to load 81.8 s after it; with the rule in `engines()`,
-at 67 to 100% CPU, there was no screenshot, the close began 19.9 s after the
-stop was asked and the next fixture's page started to load 21.0 s after it. The
-other two fixtures passed in both. With the page's function made to throw
-instead, so that the read failed at once after the steps had passed, one run of
-each, at 49 to 100% CPU: `external_replay`'s three fixtures passed with the
-rule in the suites, each with `closed` null and its three checks skipped, the
-run ending with exit code 0 6.1 s after the first stop was asked; with the rule
-in `engines()` each failed with `chromium: closed: page.evaluate: Error:
+the browser's close began 81.6 s after the stop was asked, the next fixture's
+page started to load 81.8 s after it and the `exit` event came 90.8 s after it;
+with the rule in `engines()`, at 67 to 100% CPU, there was no screenshot, the
+close began 19.9 s after the stop was asked, the next fixture's page started to
+load 21.0 s after it and the `exit` event came 33.3 s after it. The other two
+fixtures passed in both. With the page's function made to throw instead, so
+that the read failed at once after the steps had passed, one run of each, at 49
+to 100% CPU: `external_replay`'s three fixtures passed with the rule in the
+suites, each with `closed` null and its three checks skipped, the run ending
+with exit code 0 6.1 s after the first stop was asked; with the rule in
+`engines()` each failed with `chromium: closed: page.evaluate: Error:
 stall.cjs: the stop threw`, that read in `readsFailed`, with no screenshot, the
 run ending with exit code 1 6.5 s after it. `live_motion` passed with the rule
 in the suites, its `exit` event 0.07 s after its stop was asked, and with the
