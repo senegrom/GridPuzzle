@@ -202,11 +202,12 @@ test('no script decides by its own require.main whether another module is the en
   assert.deepEqual(others, []);
 });
 
-// Each line of the code in `source`, comments left out, that names
+// Each line of the code in `source`, comments left out, whose text names
 // mainModule (process.mainModule, process["mainModule"], a destructuring of
-// process), trimmed; a name put together as the code runs, such as
-// process["main" + "Module"], is not found. Strings stay, so that a // or /*
-// in one starts no comment.
+// process), trimmed: a name put together as the code runs, such as
+// process["main" + "Module"], or written with an escape, such as
+// process.main\u004Dodule, is not found. Strings stay, so that a // or /* in
+// one starts no comment.
 const mainModuleReads = (source) => source
   .replace(/(["'`])(?:\\.|(?!\1)[^\\\r\n])*\1|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g,
     (text, quote) => (quote ? text : text.replace(/[^\r\n]/g, ' ')))
@@ -228,10 +229,14 @@ const body = (source, name) =>
 // the importer's, which neither function ends, shows one from either.
 test('main() and exitIfUnclosed() read the entry point through a require function made at the call, not the deprecated process.mainModule, and warn of nothing', async (t) => {
   await t.test('harness.cjs and watch.cjs read no process.mainModule, and main() and exitIfUnclosed() read createRequire(__filename).main', () => {
-    // What the scan finds, and what it leaves alone: comments, and a // or /* in a string.
+    // What the scan finds, each spelling on a line of its own, and what it
+    // leaves alone: comments. A // or /* in a string starts none, so a read
+    // after one is found.
     assert.deepEqual(mainModuleReads('/* process.mainModule\n   process.mainModule */ const a = "//", b = \'/*\';\n'
-      + 'if (process.mainModule === m) x(); // process.mainModule\nconst { mainModule } = process; y(process["mainModule"]);\n'),
-    ['if (process.mainModule === m) x();', 'const { mainModule } = process; y(process["mainModule"]);']);
+      + 'if (process.mainModule === m) x(); // process.mainModule\nconst { mainModule } = process;\ny(process["mainModule"]);\n'
+      + 'const u = "http://x"; if (process.mainModule) y();\nconst c = \'/*\'; z(process.mainModule); const d = \'*/\';\n'),
+    ['if (process.mainModule === m) x();', 'const { mainModule } = process;', 'y(process["mainModule"]);',
+      'const u = "http://x"; if (process.mainModule) y();', 'const c = \'/*\'; z(process.mainModule); const d = \'*/\';']);
     for (const [file, name] of [['scripts/harness.cjs', 'main'], ['scripts/watch.cjs', 'exitIfUnclosed']]) {
       assert.deepEqual(mainModuleReads(read(file)), [], `${file} reads process.mainModule`);
       assert.match(body(read(file), name), /\bcreateRequire\(__filename\)\.main\b/, `${name}() in ${file}`);
