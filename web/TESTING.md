@@ -715,8 +715,8 @@ where one read never answers and another answers after the limit, while the
 screenshot is taken, before the report is written.
 
 Until November 2026 the calls that put the page back after ten steps had no
-limit either. Each comes in the `finally` of its step, so that the steps after
-it find the page as they expect: in `live_camera`, the viewport after
+limit either. Each was made in the `finally` of its step, so that the steps
+after it find the page as they expect: in `live_camera`, the viewport after
 "viewfinder layers" and after "320 px" (`page.setViewportSize()`), automatic
 solving after "live capture with automatic solving off" and the paper's turn
 after "a page lying sideways"; in `browser_regressions`, `createImageBitmap`
@@ -725,23 +725,24 @@ and the controlled camera after the camera-ownership and confirmation checks;
 in `scanner_repair`, the page's file reading after the held imports and its
 image decoding after the oversized WebP; each but the viewport's a
 `page.evaluate()`. Playwright gives neither `page.setViewportSize()` nor
-`page.evaluate()` a timeout, and in Chromium the first waits for the page as
-the second does: in one probe here, with the page's main thread kept busy for
-good, Chromium had answered neither 10 seconds later, while Windows WebKit
-answered the viewport at once and not the other. So after a step failed on a
-page that would not answer, as in the WebKit hang or with its main thread kept
-busy, the run waited in that `finally` for ever, before `live_camera`'s bounded
-reads and the engine's close, with no report for that engine, until the job's
-limit ended it; and a call there that failed, as every call does on a lost
-browser, replaced the step's own failure. Each such step now runs through
-`stepThenPutBack()`, a small function of each suite's own (one helper in
-`watch.cjs` for the three was not chosen), which runs the step and then its
-call through `readWithin()` with `READ_LIMIT`, the step's own failure first.
-After a step that failed the call is still made, and the step's own failure is
-what is thrown, whatever the call does. A call that has neither answered nor
-failed by the limit is named in the engine's report's `readsCutShort`, as
-`<name>: no answer within 19.9 s`, and one that fails in its
-`stepCleanupErrors`, as `<name>: <its error>`, the form of `cleanupErrors`,
+`page.evaluate()` a timeout, and on a busy page the first waits as the second
+does: in probes here, in the context `engines()` opens, with the page's main
+thread kept busy for good and shown to be busy first (a `page.evaluate()`
+unanswered for a second), neither Chromium nor Windows WebKit had answered
+`page.setViewportSize()` 15 seconds later (two runs each, at 31 to 96% CPU). So
+after a step failed on a page that would not answer, as in the WebKit hang or
+with its main thread kept busy, the run waited in that `finally` for ever,
+before `live_camera`'s bounded reads and the engine's close, with no report for
+that engine, until the job's limit ended it; and a call there that failed, as
+every call does on a lost browser, replaced the step's own failure. Each such
+step now runs through `stepThenPutBack()`, a small function of each suite's own
+(one helper in `watch.cjs` for the three was not chosen), which runs the step
+and then its call through `readWithin()` with `READ_LIMIT`, the step's own
+failure first. After a step that failed the call is still made, and the step's
+own failure is what is thrown, whatever the call does. A call that has neither
+answered nor failed by the limit is named in the engine's report's
+`readsCutShort`, as `<name>: no answer within 19.9 s`, and one that fails in
+its `stepCleanupErrors`, as `<name>: <its error>`, the form of `cleanupErrors`,
 which keeps the closes that failed. After a step that passed, a call cut short
 fails the step, with that line as its failure, since the page was not put back
 for the steps after it, as the owner chose; and a call that fails fails the
@@ -764,55 +765,67 @@ By design, after a step fails on a page that never answers, the engine's
 browser now begins to close about 60 seconds after the failure in `live_camera`
 (19.9 for the call, 19.9 for the `catch`'s reads and up to 20 for the failure's
 screenshot) and about 40 in the other two (19.9 for the call and up to 20 for
-the screenshot), and that close has `CLOSE_LIMIT`. Measured on Windows in
-Chromium, with the step made to fail at a call inside it and its page's main
-thread then kept busy for good, one run of each as it was and as it is now, on
-the process's own clock from that failure and with the host's load in samples
-taken during the runs: `live_camera`'s "viewfinder layers" at its second screen
-size, once the viewport was 820 × 1180 (a call that puts back the size the page
-already has returns at once in Chromium, with nothing to change), and
-`scanner_repair`'s oversized WebP at its `page.setInputFiles()`. As it was, at
-63 to 100% CPU, each was still waiting in the call its step's `finally` made
-when it was stopped, as last sampled 149.4 and 149.7 s after the failure, with
-no report. As it is now, at 56 to 100% CPU, each ended by itself with exit code
-1, its report written with the step's own failure and nothing in
-`cleanupErrors`. In `live_camera` the call was cut short 19.9 s after the
-failure and the `catch`'s seven reads 19.9 s after that, the failure's
-screenshot ran out of time 20 s later, the browser then closed, which failed
-the calls still waiting, the viewport's among them, and the `exit` event came
-60.1 s after the failure, the viewport's name ahead of the seven reads in
-`readsCutShort`. In `scanner_repair` the call was cut short 19.9 s after the
-failure, the screenshot ran out of time 20 s later and the `exit` event came
-40.0 s after the failure, with the call alone in `readsCutShort`. With nothing
-sabotaged, in one run at master at 83 to 100% CPU and one here at 74 to 99%
-CPU, `scanner_repair` and `browser_regressions` (14 checks) passed in both
-engines, their reports with the same fields at master and here, and
-`live_camera` passed in Chromium, all 19 checks, and failed in WebKit at its
-first step, as it does on Windows, WebKit's report with the same seven reads at
-master and here and an empty `readsCutShort`. `web/tests/step-cleanups.test.js`
-runs each suite's `stepThenPutBack()` on its own and plays each of the ten
-steps, which the suites export for it (the four steps of `live_camera`, the
-superseded import and the oversized WebP are functions of their own now, their
-steps unchanged), on a stand-in page that lets the step pass or fails it at a
-call inside it and then answers the call that puts the page back, fails it,
-throws as it is called or never answers, with `setTimeout` mocked and the
-timers of `READ_LIMIT`'s length counted: the step's own failure first; after a
-pass, a call cut short failing the step with its name, one that fails failing
-it with its own error, and one that answers letting the suite go on as before;
-the names in `readsCutShort` and `stepCleanupErrors`, and no list with nothing
-in it; the call that puts the page back asked once, after the step's last call;
-and one limit for it, waited out to the millisecond. It reads that each suite
-hands those steps its engine's report, and checks that a scan without the
+the screenshot), and that close has `CLOSE_LIMIT`. That does not hold for
+`browser_regressions`' camera-ownership check: when its 180-second wait for the
+solve fails, its own `catch` reads the page with `page.evaluate()` to say what
+the page showed, and that read, like the step's other calls, has no limit, so
+that a page that never answers still holds the run there for ever, before the
+call that puts the page back. Measured on Windows in Chromium, with the step
+made to fail at a call inside it and its page's main thread then kept busy for
+good, one run of each as it was and as it is now, on the process's own clock
+from that failure and with the host's load in samples taken during the runs:
+`live_camera`'s "viewfinder layers" at its second screen size, once the
+viewport was 820 × 1180 (a call that puts back the size the page already has
+returns at once in Chromium, with nothing to change), and `scanner_repair`'s
+oversized WebP at its `page.setInputFiles()`. As it was, at 63 to 100% CPU,
+each was still waiting in the call its step's `finally` made when it was
+stopped, as last sampled 149.4 and 149.7 s after the failure, with no report.
+As it is now, at 56 to 100% CPU, each ended by itself with exit code 1, its
+report written with the step's own failure and nothing in `cleanupErrors`. In
+`live_camera` the call was cut short 19.9 s after the failure and the `catch`'s
+seven reads 19.9 s after that, the failure's screenshot ran out of time 20 s
+later, the browser then closed, which failed the calls still waiting, the
+viewport's among them, and the `exit` event came 60.1 s after the failure, the
+viewport's name ahead of the seven reads in `readsCutShort`. In
+`scanner_repair` the call was cut short 19.9 s after the failure, the
+screenshot ran out of time 20 s later and the `exit` event came 40.0 s after
+the failure, with the call alone in `readsCutShort`. With nothing sabotaged, in
+one run at master at 83 to 100% CPU and one here at 74 to 99% CPU,
+`scanner_repair` and `browser_regressions` (14 checks) passed in both engines,
+their reports with the same fields at master and here, and `live_camera` passed
+in Chromium, all 19 checks, and failed in WebKit at its first step, as it does
+on Windows, WebKit's report with the same seven reads at master and here and an
+empty `readsCutShort`. `web/tests/step-cleanups.test.js` runs each suite's
+`stepThenPutBack()` on its own and plays each of the ten steps, which the
+suites export for it (the four steps of `live_camera`, the superseded import
+and the oversized WebP are functions of their own now, their steps unchanged),
+on a stand-in page that lets the step pass or fails it at a call inside it and
+then answers the call that puts the page back, fails it, throws as it is called
+or never answers, with `setTimeout` mocked and the timers of `READ_LIMIT`'s
+length counted: the step's own failure first; after a pass, a call cut short
+failing the step with its name, one that fails failing it with its own error,
+and one that answers letting the suite go on as before; the names in
+`readsCutShort` and `stepCleanupErrors`, no list with nothing in it, and the
+empty `cleanupErrors` that each report starts with, as `engines()` gives it,
+left empty; the call that puts the page back asked once, after the step's last
+call; and one limit for it, waited out to the millisecond. It reads that each
+suite hands those steps its engine's report, and checks that a scan without the
 fallback sets no limit and that `live_camera`'s `catch` keeps a name already in
 the list. And it runs `live_camera` as it is, in a process of its own, on a
-stand-in for Playwright whose page plays its first step and fails its second,
+stand-in for Playwright whose page plays the suite's first step, passing it or
+failing it at its first screen size, and fails the second step as it starts,
 with the timers of `READ_LIMIT`'s and `CLOSE_LIMIT`'s lengths lasting a tenth
 of a second and counted: the step passing and its call answering or never
 answering; the step failing and its call never answering or rejecting; and, as
 in the WebKit hang, the step failing, nothing answering after it and the
 browser never closing. Each run ends by itself, each engine's report with the
-failure the step should give and the call's name ahead of the reads' in
-`readsCutShort`, or its error in `stepCleanupErrors`.
+failure it should have: the second step's own when the call answered after a
+pass, the call's name when it never answered after a pass, and otherwise the
+first step's own. A call cut short is named ahead of the reads in
+`readsCutShort` and a call that fails is in `stepCleanupErrors`;
+`cleanupErrors` has nothing but the close of the browser that never closes; and
+nothing on stderr names the call or shows its error unless the call is the
+failure.
 
 Until November 2026 the reads that six other suites make of their page in a
 `catch` or a `finally`, for their report, had no limit either. `live_motion`'s
