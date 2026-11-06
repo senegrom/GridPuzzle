@@ -177,8 +177,8 @@ async function readAfterFailure(page,report){
   report.state=values.state;report.readsCutShort=cutShort;
 }
 // The fixture's stop, after a pass or a failure, with a READ_LIMIT of its own
-// for the same reason: a stop that fails or is cut short changes nothing but
-// `readsCutShort`, which then names it after any read of the catch.
+// for the same reason: a stop that fails changes nothing, and one cut short
+// only adds its name to `readsCutShort`, after any read of the catch.
 async function stopMotion(page,report){
   const {cutShort}=await readWithin({stop:[()=>page.evaluate(()=>window.motionState?.stop?.()),undefined]},READ_LIMIT);
   report.readsCutShort=[...(report.readsCutShort??[]),...cutShort];

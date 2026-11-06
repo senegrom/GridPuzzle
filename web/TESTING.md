@@ -104,10 +104,13 @@ and the close of a page that a suite awaits itself, that of
 browser that is up but stuck, Playwright sets no limit on `page.evaluate()`,
 `page.close()` or `context.close()`, so a suite's own call that Playwright
 gives no timeout, such as `page.evaluate()`, can still wait there for ever, but
-for the reads that `live_camera`, `live_motion`, `live_noise`, `live_recovery`,
-`external_replay`, `solver_update` and `browser_smoke` make of their page in a
-`catch` or a `finally`, which have had a limit of their own since November 2026
-(`READ_LIMIT`, below); on a browser that has gone they end at once.
+for the reads that `live_camera` makes of its page for its report, in its
+engine's `catch`, and those that `live_motion`, `live_noise`, `live_recovery`,
+`external_replay`, `solver_update` and `browser_smoke` make of theirs in a
+`catch` or a `finally`, a fixture's stop among them, which have had a limit of
+their own since November 2026 (`READ_LIMIT`, below); the clean-ups in the
+`finally` of some of `live_camera`'s steps still have none. On a browser that
+has gone they end at once.
 The hang below is the exception: with a WebKit child still holding the pipes,
 a closed page's calls end at once, but `context.close()` and `page.close()`
 wait as `browser.close()` does, and so does `page.evaluate()` on a page still
@@ -715,17 +718,22 @@ fallback that a read that fails keeps there, `null` for a value
 (`browser_smoke`'s reads have none, so that its report then has no such field)
 and nothing for a stop, and `readsCutShort` names it, in the engine's report
 or, in `live_recovery`, in the scene's record (`cases`); the list is empty when
-nothing was cut short, and `browser_smoke` and `solver_update` have it only
-when they read a page. Reads that answer give what they gave before, and
-`external_replay`'s `finally` checks what its stop says as before. `live_noise`
-and `live_recovery` still ask for the stop only once their snapshot has
-answered or failed, as they always did, and within the same limit, so that a
-fixture is never stopped before its last snapshot. `browser_smoke` still takes
-its screenshot first, with the page's timeout, and a screenshot that fails
-still leaves the page unread; its two reads now start at once, so that a
-`#status` read that fails no longer leaves the state unread. What the limit
-means differs by suite. `browser_smoke` gives its page 20 seconds itself, so
-there `READ_LIMIT` is a tenth of a second under the `#status` read's own
+nothing was cut short. A report has the list only once its suite has reached
+those reads: in `live_noise`, `live_recovery` and `external_replay` once the
+page is ready (`body[data-ready]`), since their `try` starts after that, so
+that a scene of `live_recovery` whose page never gets ready has no record; in
+`live_motion` whenever it has a page; and in `browser_smoke` and
+`solver_update` only after a failure on a page, in `browser_smoke` once the
+failure's screenshot has been taken. Reads that answer give what they gave
+before, and `external_replay`'s `finally` checks what its stop says as before.
+`live_noise` and `live_recovery` still ask for the stop only once their
+snapshot has answered or failed, as they always did, and within the same limit,
+so that a fixture is never stopped before its last snapshot. `browser_smoke`
+still takes its screenshot first, with the page's timeout, and a screenshot
+that fails still leaves the page unread; its two reads now start at once, so
+that a `#status` read that fails no longer leaves the state unread. What the
+limit means differs by suite. `browser_smoke` gives its page 20 seconds itself,
+so there `READ_LIMIT` is a tenth of a second under the `#status` read's own
 timeout, as in `live_camera`. `live_motion`, `live_noise`, `live_recovery` and
 `external_replay` ask `engines()` for 60 seconds and `solver_update` keeps
 Playwright's own 30, so there a read that would have answered later than 19.9
@@ -792,9 +800,17 @@ for each `catch` or `finally` that reads, in each engine. The rows are reads
 that all answer, all fail or none answer, the last also with a browser that
 will not close, and in each suite with two reads one that answers or fails
 while the other never does; and `external_replay` still fails an engine whose
-stop says the replay still runs. `live_noise` and `external_replay` also play
-their steps through to a pass, which reads that answer, fail or never answer in
-their `finally` all keep.
+stop says the replay still runs. The four suites whose `finally` reads also
+play their steps through to a pass, which reads that answer, fail or never
+answer in their `finally` all keep, with nothing read in a `catch`. Last come
+engines that never reach the reads, whose reports have none of their fields and
+no `readsCutShort`: one whose `newPage()` rejects, in `solver_update` and
+`browser_smoke`, whose next engine still reads its page; one in `browser_smoke`
+whose failure's screenshot fails, which leaves the page unread as it always
+did; and a page that never gets ready, which `live_noise`, `live_recovery`,
+with no record for its scene, and `external_replay` wait for before their
+`try`, while `live_motion`, which waits for it inside its `try`, still reads
+it.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
