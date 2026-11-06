@@ -12,8 +12,10 @@ import { createRequire } from 'node:module';
 // live_recovery's and external_replay's as the functions the suites export,
 // on a stand-in page; then each of the six run as it is, in a process of its
 // own, on a stand-in for Playwright whose page fails the suite's first step
-// in its try, and then answers those reads, fails them or never answers.
-// Loading watch.cjs or a suite needs no Playwright.
+// in its try, and then answers those reads, fails them or never answers; the
+// four whose finally reads, played through to a pass; and engines that never
+// reach those reads, with no page, a page that never gets ready or a failure's
+// screenshot that fails. Loading watch.cjs or a suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 const motion = require('../../scripts/live_motion_regressions.cjs');
@@ -228,23 +230,44 @@ globalThis.setTimeout = (run, ms, ...args) => { if (Object.hasOwn(limits, ms)) {
 process.on("exit", () => console.log("limits", JSON.stringify(limits)));
 `;
 
-// The steps of live_noise and external_replay, as a page that plays them
+// The steps of the four suites whose finally reads, as a page that plays them
 // through to a pass answers them: what a page.evaluate() of each source
 // (whitespace taken out) resolves to, and what the handle of a
 // page.waitForFunction() whose predicate holds each part resolves to; any
 // other step resolves to nothing, or to true. live_noise's board has 22 clues
 // and its changed board a 3 in cell 1, and the camera reads back its own
-// frames (no bitmaps); external_replay's reading flags every cell.
+// frames (no bitmaps); live_motion's reading is the board it gives its page,
+// as its source has it; live_recovery's first reading flags the blurred clue
+// (cell 52), its re-read of that clue alone keeps every other cell, and in
+// its race the changed puzzle is read again; external_replay's reading flags
+// every cell.
 const BOARD = Array.from({ length: 81 }, (_, cell) => (cell < 22 ? cell % 9 + 1 : null));
 const CHANGED = BOARD.map((value, cell) => (cell === 1 ? 3 : value));
+const MOTION_BOARD = JSON.parse(`[${/const expected = \[([\s\S]*?),?\s*\]\.flat\(\);/.exec(source('live_motion_regressions.cjs'))[1]}]`).flat();
+const RECOVERY_READ = { cells: BOARD, uncertain: [52], marked: [52], stats: { calls: 81 } };
 const PLAYED = {
   '()=>noiseState.error': null, '()=>externalReplay.error': null, '()=>externalReplay.capture()': false,
   '()=>externalReplay.report()': { reads: [{ cells: Array(81).fill(5), uncertain: Array.from({ length: 81 }, (_, cell) => cell) }] },
+  '()=>motionState.playback()': { started: true, error: null },
+  '()=>({reads:motionState.reads,cancels:motionState.cancels,unknown:motionOutput.dataset.unknown})': { reads: 1, cancels: 0, unknown: '0' },
+  '()=>motionState.camera.capture().found': null, '()=>motionState.reads': 1,
+  '()=>motionState.camera.capture().found?.puzzle.cells[1]===8': false,
+  '()=>recoveryState.startError??null': null, '()=>recoveryState.retries.length': 0,
+  "()=>recoveryState.events.find(e=>e.reason==='read-complete')?.seq??0": 1,
+  'since=>({resets:recoveryState.resetsSince(since),reads:recoveryState.full.length})': { resets: [], reads: 1 },
+  '()=>{recoveryState.clear();returnrecoveryState.seq;}': 2, '()=>recoveryState.snapshot()': { capture: null },
 };
 const READING = (cells, reads) => ({ found: { cells, type: 'sudoku', review: true, refining: false, uncertain: [] }, expected: cells,
   reads, completed: reads, diagnostic: { tracking: { transport: 'readback' }, events: reads > 1 ? [{ reason: 'content-changed' }] : [] } });
 const WAITED = [['if(!noiseState.completed)', READING(BOARD, 1)], ['noiseState.witness()[0]-172', { found: null }],
-  ['noiseState.completed>=2', READING(CHANGED, 2)], ['returnv.found?v:false', READING(BOARD, 1)]];
+  ['noiseState.completed>=2', READING(CHANGED, 2)], ['returnv.found?v:false', READING(BOARD, 1)],
+  ['returnvalue.cells?value:false', { cells: MOTION_BOARD, review: true, refining: false, reads: 1, cancels: 0, unknown: '0' }],
+  ['!recoveryState.full.length||', { full: [RECOVERY_READ] }],
+  ["'targeted-complete')||", { full: [RECOVERY_READ], retries: [{ cells: [52], result: { stats: { calls: 1 } } }],
+    capture: { cells: BOARD, uncertain: [52], needsReview: true, recovery: { proposals: 1 } }, expected: BOARD }],
+  ['{if(!recoveryState.visible())', { full: [RECOVERY_READ] }],
+  ['recoveryState.full.length<2', { full: [RECOVERY_READ, RECOVERY_READ], events: [{ reason: 'content-changed' }],
+    capture: { cells: BOARD.map((value, cell) => ({ 13: 7, 14: 9 })[cell] ?? value) } }]];
 
 // Playwright for the six suites: each engine's page fails the suite's first
 // step in its try, the first page.evaluate() that is none of the reads above,
@@ -253,10 +276,13 @@ const WAITED = [['if(!noiseState.completed)', READING(BOARD, 1)], ['noiseState.w
 // (ANSWERS), { answer } for that answer, "reject" at once or "never". The
 // page says on stdout what it is asked for and when it takes a screenshot,
 // the browser when it closes. With BROWSER_HANGS, Chromium's browser never
-// closes, as while a WebKit child holds the browser's pipes. Each launch keeps
-// the process alive until its browser closes, as a live browser's pipes do.
+// closes, as while a WebKit child holds the browser's pipes; with REFUSE,
+// Chromium's newPage() rejects, so that its engine has no page; with UNREADY,
+// the page never gets ready (waitForSelector() rejects); with
+// SHOT_FAILS, every screenshot fails as it is taken. Each launch keeps the
+// process alive until its browser closes, as a live browser's pipes do.
 const PLAYWRIGHT = `const fs = require("node:fs");
-const { PLAN, PLAY, BROWSER_HANGS } = process.env, plan = JSON.parse(PLAN);
+const { PLAN, PLAY, BROWSER_HANGS, REFUSE, UNREADY, SHOT_FAILS } = process.env, plan = JSON.parse(PLAN);
 const NAMES = ${JSON.stringify(NAMES)}, ANSWERS = ${JSON.stringify(ANSWERS)};
 const PLAYED = ${JSON.stringify(PLAYED)}, WAITED = ${JSON.stringify(WAITED)};
 const engine = (name) => ({ async launch() {
@@ -269,7 +295,8 @@ const engine = (name) => ({ async launch() {
     return Promise.resolve(way === "answer" ? ANSWERS[what] : way.answer);
   };
   const source = (fn) => String(fn).replace(/\\s+/g, "");
-  const page = { on() {}, setDefaultTimeout() {}, url: () => "http://stand-in/", goto: async () => {}, waitForSelector: async () => {},
+  const page = { on() {}, setDefaultTimeout() {}, url: () => "http://stand-in/", goto: async () => {},
+    waitForSelector: async () => { if (UNREADY) throw new Error("the page never became ready"); },
     click: async () => {},
     evaluate: async (fn) => {
       const what = NAMES[source(fn)];
@@ -282,14 +309,21 @@ const engine = (name) => ({ async launch() {
       return { jsonValue: async () => value, dispose: async () => {} };
     },
     locator: (selector) => ({ innerText: () => read(NAMES["locator " + selector + " innerText"]) }),
-    screenshot: async ({ path }) => { say("takes a screenshot"); fs.writeFileSync(path, ""); } };
+    screenshot: async ({ path }) => {
+      say("takes a screenshot");
+      if (SHOT_FAILS) throw new Error("the screenshot timed out");
+      fs.writeFileSync(path, "");
+    } };
   return { contexts: () => [], on() {}, isConnected: () => true, version: () => "1.0",
     close: async () => {
       say("closes its browser");
       if (name === "chromium" && BROWSER_HANGS) return new Promise(() => {});
       clearInterval(pipes);
     },
-    newContext: async () => ({ on() {}, newPage: async () => page }) };
+    newContext: async () => ({ on() {}, newPage: async () => {
+      if (name === "chromium" && REFUSE) throw new Error("newPage refused");
+      return page;
+    } }) };
 } });
 module.exports = { chromium: engine("chromium"), webkit: engine("webkit") };
 `;
@@ -305,26 +339,27 @@ const FIXTURES = JSON.stringify({
     cells: Array.from({ length: 9 }, () => Array.from({ length: 9 }, () => Array(10).fill(0))) })),
 });
 
-// The six suites: what each reads in its catch or finally, one list for each
-// (each one readWithin() call, in the order asked), the fields its report
-// keeps of those reads, each with the fallback a failed read gives it (none
-// for browser_smoke's), how many times it runs both engines, and where an
+// The six suites: what each reads in its catch and in its finally, in the
+// order asked (each one readWithin() call), the fields its report keeps of
+// those reads, each with the fallback a failed read gives it (none for
+// browser_smoke's), how many times it runs both engines, and where an
 // engine's report keeps the reads (live_recovery's in its scene's record).
 // `chained`: its stop is asked only once its snapshot has settled. `own`:
-// it launches its browsers itself, and fails with ok: false.
+// it launches its browsers itself, and fails with ok: false. `shotOnPass`: it
+// takes a screenshot in its try, which a pass reaches before its finally.
 const SUITES = {
   live_motion: { script: 'scripts/live_motion_regressions.cjs', file: 'browser-artifacts/live-motion.json',
-    blocks: [['state'], ['stop']], kept: { state: null } },
+    reads: { catch: ['state'], finally: ['stop'] }, kept: { state: null }, shotOnPass: true },
   live_noise: { script: 'scripts/live_noise_regressions.cjs', file: 'browser-artifacts/live-noise.json',
-    blocks: [['final', 'stop']], kept: { final: null }, chained: true },
+    reads: { finally: ['final', 'stop'] }, kept: { final: null }, chained: true, shotOnPass: true },
   live_recovery: { script: 'scripts/live_recovery_regressions.cjs', file: 'browser-artifacts/live-recovery.json',
-    blocks: [['final', 'stop']], kept: { final: null }, chained: true, runs: 2, holder: (report) => report.cases[0] },
+    reads: { finally: ['final', 'stop'] }, kept: { final: null }, chained: true, runs: 2, holder: (report) => report.cases[0] },
   external_replay: { script: 'scripts/external_replay_regressions.cjs', file: 'browser-artifacts/external-replay.json',
-    blocks: [['closed']], kept: { closed: null }, runs: 3, write: { 'live-fixtures/fixtures.json': FIXTURES } },
+    reads: { finally: ['closed'] }, kept: { closed: null }, runs: 3, write: { 'live-fixtures/fixtures.json': FIXTURES } },
   solver_update: { script: 'scripts/solver_update_regressions.cjs', file: 'browser-artifacts/solver-update-regressions.json',
-    blocks: [['results', 'workerDebug']], kept: { results: null, workerDebug: null }, own: true, copy: ['web/sw.js', 'web/offline.js'] },
+    reads: { catch: ['results', 'workerDebug'] }, kept: { results: null, workerDebug: null }, own: true, copy: ['web/sw.js', 'web/offline.js'] },
   browser_smoke: { script: 'scripts/browser_smoke.cjs', file: 'browser-artifacts/results.json',
-    blocks: [['status', 'state']], kept: { status: undefined, state: undefined }, own: true, screenshotFirst: true },
+    reads: { catch: ['status', 'state'] }, kept: { status: undefined, state: undefined }, own: true, screenshotFirst: true },
 };
 
 // How `suite` ends, run as it is with PRELOAD loaded first, in a tree of its
@@ -346,9 +381,9 @@ async function ran(t, suite, env) {
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
   fs.writeFileSync(inTree('preload.cjs'), PRELOAD);
+  const flags = Object.fromEntries(['PLAY', 'BROWSER_HANGS', 'REFUSE', 'UNREADY', 'SHOT_FAILS'].map((flag) => [flag, env[flag] ? '1' : '']));
   const ended = await finish(['-r', inTree('preload.cjs'), inTree(script)], { cwd: directory,
-    env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', PLAN: JSON.stringify(env.PLAN),
-      ...(env.PLAY && { PLAY: '1' }), ...(env.BROWSER_HANGS && { BROWSER_HANGS: '1' }) } });
+    env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', PLAN: JSON.stringify(env.PLAN), ...flags } });
   const lines = ended.stdout.trim().split(/\r?\n/), limits = /^limits (.+)$/.exec(lines.at(-1));
   const reports = fs.existsSync(inTree(file)) ? JSON.parse(fs.readFileSync(inTree(file), 'utf8')) : null;
   return { ...ended, lines, limits: limits && JSON.parse(limits[1]), reports };
@@ -358,30 +393,41 @@ async function ran(t, suite, env) {
 // the report's JSON, as it always has.
 const kept = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 const wayOf = (plan, name) => plan[name] ?? plan['*'];
+// The engines a suite runs, in order, `runs` times over.
+const enginesOf = (runs = 1) => Array.from({ length: runs }, () => ['chromium', 'webkit']).flat();
+// What the stand-in says that `engine`'s page and browser were asked, in order.
+const said = (lines, engine) => lines.filter((line) => line.startsWith(`${engine} `) && !/^\w+ \d/.test(line))
+  .map((line) => line.slice(engine.length + 1));
+// Which of `names` a report has as its own fields.
+const fieldsOf = (report, names) => names.filter((name) => Object.hasOwn(report, name));
 
 // Runs `suite` as `env` says and checks how it ended: by itself, with its
 // own failure in each engine's report, or with every engine passed when it
 // plays its steps through (env.PLAY); each read's answer or fallback and the
-// reads cut short; each read asked once, in the suite's order, before the
-// harness's failure screenshot (after browser_smoke's own, and after
-// live_noise's last step's when it passes), and the browser's close last;
-// and one limit's timer for each catch or finally that reads, in each engine,
-// and one for each browser's close.
+// reads cut short, and no field for a read of the catch after a pass; each
+// read asked once, in the suite's order, before the harness's failure
+// screenshot (after browser_smoke's own, and after the screenshot that
+// live_motion and live_noise take in their try when they pass), and the
+// browser's close last; and one limit's timer for each catch or finally
+// that reads, in each engine, and one for each browser's close.
 async function check(t, suite, env) {
-  const { blocks, kept: fields, runs = 1, holder = (report) => report, chained, own, screenshotFirst } = SUITES[suite];
+  const { reads: { catch: caught, finally: last }, kept: fields, runs = 1, holder = (report) => report, chained, own,
+    screenshotFirst, shotOnPass } = SUITES[suite];
   const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, suite, env);
   assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
   assert.equal(code, env.PLAY ? 0 : 1, stderr);
   assert.ok(reports, `its reports written: ${stdout}`);
-  const engines = Array.from({ length: runs }, () => ['chromium', 'webkit']).flat();
+  const engines = enginesOf(runs);
   assert.deepEqual(reports.map((report) => [report.browser, own ? report.ok : report.status, report.failure?.split('\n')[0],
     report.cleanupErrors]), engines.map((name) => [name, env.PLAY ? 'passed' : own ? false : 'failed',
     env.PLAY ? undefined : 'Error: no site here', name === 'chromium' && env.BROWSER_HANGS ? ['browser: browser cleanup timed out'] : []]),
   env.PLAY ? 'every engine passed' : 'the suite\'s own failure, kept');
-  // What each read leaves, its answer or its fallback, and the reads still
-  // waiting at the limit: those that never answer, and a stop asked only
-  // once a snapshot that never answers has settled.
-  const asked = [], cut = [], values = {};
+  // The reads of the catch come only after a failure, those of the finally
+  // after a pass too: one readWithin() call each. What each read leaves, its
+  // answer or its fallback, and the reads still waiting at the limit: those
+  // that never answer, and a stop asked only once a snapshot that never
+  // answers has settled.
+  const blocks = [env.PLAY ? undefined : caught, last].filter(Boolean), asked = [], cut = [], values = {};
   for (const block of blocks)
     for (const [n, name] of block.entries()) {
       const behind = chained && n > 0 && wayOf(env.PLAN, block[0]) === 'never', waits = behind || wayOf(env.PLAN, name) === 'never';
@@ -393,15 +439,17 @@ async function check(t, suite, env) {
     const record = holder(report);
     for (const [name, value] of Object.entries(values))
       assert.deepEqual(record[name], value, `${report.browser}'s ${name}`);
+    assert.deepEqual(fieldsOf(record, Object.keys(fields).filter((name) => !Object.hasOwn(values, name))), [],
+      `${report.browser}'s fields of reads never made`);
     assert.deepEqual(record.readsCutShort, CUT_SHORT(...cut), `${report.browser}'s reads cut short`);
   }
-  const shot = env.PLAY ? (suite === 'live_noise' ? ['takes a screenshot'] : []) : own && !screenshotFirst ? [] : ['takes a screenshot'];
-  for (const name of ['chromium', 'webkit']) {
-    const said = lines.filter((line) => line.startsWith(`${name} `) && !/^\w+ \d/.test(line)).map((line) => line.slice(name.length + 1));
-    const reads = asked.map((read) => `is asked for ${read}`);
-    assert.deepEqual(said, Array.from({ length: runs }, () => [...(screenshotFirst || env.PLAY ? shot : []), ...reads,
-      ...(screenshotFirst || env.PLAY ? [] : shot), 'closes its browser']).flat(), stdout);
-  }
+  // After a failure the harness takes its screenshot once the reads have
+  // ended, browser_smoke takes its own before them and solver_update none.
+  const before = (env.PLAY ? shotOnPass : screenshotFirst) ? ['takes a screenshot'] : [];
+  const after = env.PLAY || own ? [] : ['takes a screenshot'];
+  for (const name of ['chromium', 'webkit'])
+    assert.deepEqual(said(lines, name), Array.from({ length: runs }, () => [...before, ...asked.map((read) => `is asked for ${read}`),
+      ...after, 'closes its browser']).flat(), stdout);
   assert.deepEqual(limits, { [READ_LIMIT]: blocks.length * engines.length, [CLOSE_LIMIT]: engines.length },
     'one limit for each catch\'s or finally\'s reads in each engine, and one for each browser\'s close');
   assert.doesNotMatch(stderr, /no answer within/, 'the reads cut short are the report\'s, not stderr\'s');
@@ -444,11 +492,75 @@ describe('the six suites, run as they are, read their page after their failure a
 });
 
 // The reads of a finally run after a pass too, and a read cut short there
-// keeps the pass, as one that fails does: external_replay's stop, then left
-// unchecked, and live_noise's last snapshot and its stop.
-describe('two suites whose finally reads, run as they are through a pass', { concurrency: true }, () => {
-  for (const suite of ['live_noise', 'external_replay'])
+// keeps the pass, as one that fails does: live_motion's stop, live_noise's
+// and live_recovery's last snapshot and their stop, and external_replay's
+// stop, then left unchecked.
+describe('the four suites whose finally reads, run as they are through a pass', { concurrency: true }, () => {
+  for (const suite of ['live_motion', 'live_noise', 'live_recovery', 'external_replay'])
     for (const [what, PLAN] of [['every read answers', { '*': 'answer' }], ['every read fails', { '*': 'reject' }],
       ['no read answers', { '*': 'never' }]])
       test(`${suite} passes, with its reads, when ${what}`, (t) => check(t, suite, { PLAN, PLAY: true }));
+});
+
+// Engines that never reach the reads, so that their reports have none of the
+// reads' fields and no readsCutShort: one with no page, since Chromium's
+// newPage() rejects, in the two suites that open their pages themselves; a
+// failure screenshot that fails in browser_smoke, which reads its page only
+// once that screenshot is taken; and a page that never gets ready, which
+// live_noise, live_recovery (whose scene then has no record) and
+// external_replay wait for before their try, and live_motion inside it, so
+// that live_motion alone still reads it.
+describe('the six suites, run as they are, when an engine has no page, its failure\'s screenshot fails or its page never gets ready', { concurrency: true }, () => {
+  for (const suite of ['solver_update', 'browser_smoke'])
+    test(`${suite} reads nothing in an engine whose page would not open, and has no readsCutShort there`, async (t) => {
+      const { reads: { catch: names }, screenshotFirst } = SUITES[suite];
+      const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, suite, { PLAN: { '*': 'answer' }, REFUSE: true });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, 1, stderr);
+      assert.deepEqual(reports.map((report) => [report.browser, report.ok, report.failure?.split('\n')[0]]),
+        [['chromium', false, 'Error: newPage refused'], ['webkit', false, 'Error: no site here']]);
+      const [chromium, webkit] = reports;
+      assert.deepEqual(fieldsOf(chromium, [...names, 'readsCutShort']), [], 'nothing read where there is no page');
+      assert.deepEqual([...names.map((name) => webkit[name]), webkit.readsCutShort], [...names.map((name) => kept(ANSWERS[name])), []],
+        'the next engine reads its page');
+      assert.deepEqual(said(lines, 'chromium'), ['closes its browser'], stdout);
+      assert.deepEqual(said(lines, 'webkit'), [...(screenshotFirst ? ['takes a screenshot'] : []),
+        ...names.map((name) => `is asked for ${name}`), 'closes its browser'], stdout);
+      assert.deepEqual(limits, { [READ_LIMIT]: 1, [CLOSE_LIMIT]: 2 });
+    });
+
+  test('browser_smoke reads nothing of a page whose failure\'s screenshot fails, as ever, and has no readsCutShort then', async (t) => {
+    const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, 'browser_smoke', { PLAN: { '*': 'answer' }, SHOT_FAILS: true });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    for (const report of reports) {
+      assert.equal(report.failure?.split('\n')[0], 'Error: no site here', report.browser);
+      assert.deepEqual(fieldsOf(report, ['status', 'state', 'readsCutShort']), [], report.browser);
+    }
+    for (const name of ['chromium', 'webkit'])
+      assert.deepEqual(said(lines, name), ['takes a screenshot', 'closes its browser'], stdout);
+    assert.deepEqual(limits, { [READ_LIMIT]: 0, [CLOSE_LIMIT]: 2 });
+  });
+
+  for (const suite of ['live_motion', 'live_noise', 'live_recovery', 'external_replay'])
+    test(`${suite} ${suite === 'live_motion' ? 'still reads a page that never gets ready, which its try waits for' :
+      'reads nothing of a page that never gets ready, which it waits for before its try, and has no readsCutShort then'}`, async (t) => {
+      const { reads: { catch: caught = [], finally: last }, runs = 1 } = SUITES[suite], reached = suite === 'live_motion';
+      const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, suite, { PLAN: { '*': 'answer' }, UNREADY: true });
+      assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+      assert.equal(code, 1, stderr);
+      const engines = enginesOf(runs), names = reached ? [...caught, ...last] : [];
+      assert.deepEqual(reports.map((report) => [report.browser, report.status, report.failure?.split('\n')[0], report.cleanupErrors]),
+        engines.map((name) => [name, 'failed', 'Error: the page never became ready', []]));
+      for (const report of reports) {
+        const fields = fieldsOf(report, ['state', 'final', 'closed', 'readsCutShort']);
+        assert.deepEqual(Object.fromEntries(fields.map((name) => [name, report[name]])),
+          reached ? { state: kept(ANSWERS.state), readsCutShort: [] } : {}, report.browser);
+        if (suite === 'live_recovery') assert.deepEqual(report.cases, [], 'no record of a scene that never began');
+      }
+      for (const name of ['chromium', 'webkit'])
+        assert.deepEqual(said(lines, name), Array.from({ length: runs }, () => [...names.map((read) => `is asked for ${read}`),
+          'takes a screenshot', 'closes its browser']).flat(), stdout);
+      assert.deepEqual(limits, { [READ_LIMIT]: reached ? 2 * engines.length : 0, [CLOSE_LIMIT]: engines.length });
+    });
 });
