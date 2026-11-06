@@ -117,9 +117,11 @@ async function run(){
     }
     // Reached only after a pass, so that a failure stays the engine's own: a
     // stop cut short then fails the engine with its name, as a browser that
-    // would not close fails one that passed (web/TESTING.md). The next engine
-    // and fixture run as after any failure.
-    if(r.readsCutShort.length)throw Error(`${name}: ${r.readsCutShort.join('; ')}`);
+    // would not close fails one that passed (web/TESTING.md). And as with such
+    // a close, an uncaught page error or a page or browser lost fails it
+    // instead, through engines()' own checks once this returns. The next
+    // engine and fixture run as after any failure.
+    if(r.readsCutShort.length&&!r.errors.length&&!r.ended.length)throw Error(`${name}: ${r.readsCutShort.join('; ')}`);
    },{timeout:60000});}catch(e){failures.push(e);}finally{if(fs.existsSync(`browser-artifacts/${file}`))reports.push(...JSON.parse(fs.readFileSync(`browser-artifacts/${file}`,'utf8')));}
   }
  // In this order: a report that cannot be written must not leave the server up.

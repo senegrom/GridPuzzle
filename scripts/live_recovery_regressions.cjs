@@ -285,8 +285,11 @@ async function run() {
           // engine's own: a read cut short then fails the engine with the
           // names, as a browser that would not close fails one that passed
           // (web/TESTING.md), and the record keeps `ok`, since its checks
-          // passed. The next engine and scene run as after any failure.
-          if (record.readsCutShort.length) throw Error(`${name}: ${record.readsCutShort.join('; ')}`);
+          // passed, with no `failure` of its own. And as with such a close, an
+          // uncaught page error or a page or browser lost fails the engine
+          // instead, through engines()' own checks once this returns. The next
+          // engine and scene run as after any failure.
+          if (record.readsCutShort.length && !report.errors.length && !report.ended.length) throw Error(`${name}: ${record.readsCutShort.join('; ')}`);
         }, { timeout: 60000 });
       } catch (error) { failures.push(error); }
       finally {
