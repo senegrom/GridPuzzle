@@ -1159,10 +1159,12 @@ first engine's failure, also when both fail so; with a close that never settles
 or rejects as well, the report keeps the reads' failure, the close's is in
 `cleanupErrors` and printed after it, and the run still ends; and a read that
 failed as the browser went away fails the engine once the disconnection has
-come, led by it. With the suite's own failure, an uncaught page error, a crash
-or the browser's disconnection before the reads failed as well, the engine
-fails with that, asking for its screenshot, which the stand-in takes, with
-nothing printed of the reads; those rows pass on the harness as it was too.
+come, led by it, or, when the disconnection comes 1.5 s later, past the
+harness's second of waiting, with the read's own error alone. With the suite's
+own failure, an uncaught page error, a crash or the browser's disconnection
+before the reads failed as well, the engine fails with that, asking for its
+screenshot, which the stand-in takes, with nothing printed of the reads; those
+rows pass on the harness as it was too.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong

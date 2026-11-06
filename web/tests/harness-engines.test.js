@@ -13,10 +13,12 @@ import { createRequire } from 'node:module';
 // fails, in engines()' finally, beside the browser's close, with the reads
 // named and no failure screenshot; its report is written, its browser
 // closed, the next engine run and the first failure thrown again at the end.
-// A suite's own failure, an uncaught page error, a page lost, and the
-// browser lost when its news comes before the reads fail, still fail the
-// engine first, asking for their screenshot, as before; a close that fails
-// too stays in cleanupErrors, after the reads' failure.
+// A browser lost after the reads failed leads their failure once its news
+// has come, if that is within a second. A suite's own failure, an uncaught
+// page error, a page lost, and the browser lost when its news comes before
+// the reads fail, still fail the engine first, asking for their screenshot,
+// as before; a close that fails too stays in cleanupErrors, after the
+// reads' failure.
 // The suite runs as the suites do, through main(), in a process of its own,
 // on a stand-in for Playwright; loading the harness needs neither
 // Playwright nor Python.
@@ -63,8 +65,10 @@ main(module, () => engines("stand-in.json", async (page, report, name) => {
 // which watch() listens to: the page's evaluate("pageerror") makes it throw
 // an uncaught error, evaluate("crash") crashes it, evaluate("lose") makes the
 // browser disconnect 30 ms later, as a browser that goes away can be
-// reported after the calls it interrupted fail, and evaluate("disconnect")
-// makes it disconnect at once, as one can be reported before them. The page
+// reported after the calls it interrupted fail, evaluate("lose late") 1.5 s
+// later, after the second that the harness waits for that news, and
+// evaluate("disconnect") makes it disconnect at once, as one can be reported
+// before them. The page
 // says on stdout when it takes a screenshot, which it writes, and the
 // browser when it is asked to close; with `close` "hangs" in PLAN its close
 // never settles, as while a WebKit child holds the browser's pipes, and with
@@ -84,6 +88,7 @@ const engine = (name) => ({ async launch() {
       if (what === "crash") page.emit("crash", page);
       const disconnect = () => { connected = false; browser.emit("disconnected", browser); };
       if (what === "lose") setTimeout(disconnect, 30);
+      if (what === "lose late") setTimeout(disconnect, 1500);
       if (what === "disconnect") disconnect();
     },
     screenshot: async ({ path }) => { say("takes a screenshot"); fs.writeFileSync(path, ""); } });
@@ -209,6 +214,26 @@ describe('engines() fails an engine that passed when its suite\'s finally cut re
       chromium: { ...PASSED, status: 'failed', failure: `browser disconnected N s after launch\nError: chromium: ${gone}`, readsFailed: [gone] },
       webkit: PASSED, said: ['closes its browser'], shot: false }, `${stdout}${stderr}`);
     assert.match(stderr, /^chromium browser disconnected [\d.]+ s after launch\nError: chromium: closed: page\.evaluate: Target page/m, stderr);
+  });
+
+  // That wait lasts a second at most, as the catch's does: news that comes
+  // later leads nothing, and the browser's close, asked for once the wait
+  // has run out, keeps it out of the report's ended. The stand-in's 1.5 s
+  // start as the steps run and the harness's second just after them, with
+  // no turn of the event loop between, and Node runs the timers that are due
+  // in the order they fall due: so the second ends first however late the
+  // timers wake.
+  test('a read that failed as its browser went away fails the engine with its own error alone when the news comes more than a second later', async (t) => {
+    const gone = 'closed: page.evaluate: Target page, context or browser has been closed';
+    const { code, killed, stdout, stderr, lines, reports, shot } = await ran(t, { chromium: { event: 'lose late', readsFailed: [gone] }, webkit: {} });
+    const [chromium, webkit] = reports;
+    assert.deepEqual({ killed, code, ended: chromium.ended.map(({ event }) => event), chromium: seen(chromium), webkit: seen(webkit),
+      said: said(lines, 'chromium'), shot: shot('chromium') },
+    { killed: false, code: 1, ended: [],
+      chromium: { ...PASSED, status: 'failed', failure: `Error: chromium: ${gone}`, readsFailed: [gone] },
+      webkit: PASSED, said: ['closes its browser'], shot: false }, `${stdout}${stderr}`);
+    assert.match(stderr, /^chromium Error: chromium: closed: page\.evaluate: Target page/m, stderr);
+    assert.ok(!stderr.includes('browser disconnected'), `nothing led the failure: ${stderr}`);
   });
 });
 
