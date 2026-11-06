@@ -1027,9 +1027,10 @@ beside the lists that name the reads, and has no `failure` of its own, which a
 failing step gives it. A stop of `external_replay`'s that fails after a pass,
 which leaves `closed` null and so the `finally`'s three checks of what the
 replay left undone, now fails its engine too. The rule came in two steps, both
-in November 2026; before them the pass stood, with the read's fallback and its
-name in `readsCutShort`. First each of the four suites checked for reads cut
-short right after the `try` whose `finally` reads, and threw, so that
+in November 2026; before them the pass stood, each read keeping its fallback, a
+read cut short named in `readsCutShort` and one that failed nowhere. First each
+of the four suites checked for reads cut short right after the `try` whose
+`finally` reads, and threw, so that
 `engines()` failed the engine through its `catch`, which took the failure's
 screenshot, while a read that failed after a pass kept its fallback and the
 pass. Then the owner chose that such a read fails the engine too, named with
