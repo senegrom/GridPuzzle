@@ -846,7 +846,8 @@ describe('the camera-ownership check, run in engines() as browser_regressions ru
         assert.deepEqual(limits, { [READ_LIMIT]: 4, [CLOSE_LIMIT]: 2 }, 'in each engine one limit for the read and one for putting the camera back');
         // The read and the call are printed only within the failure, which
         // engines() prints, and main() again: never by their names.
-        for (const text of [SOLVE_WAIT_READ, CAMERA]) assert.equal(stderr.includes(text), false, `"${text}" is not printed`);
+        for (const text of [SOLVE_WAIT_READ, CAMERA])
+          assert.equal(`${stdout}${stderr}`.includes(text), false, `"${text}" is not printed`);
         assert.ok(stderr.includes(`${SOLVE_FAILED.message}; ${says}`), stderr);
       });
   });
