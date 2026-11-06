@@ -870,12 +870,15 @@ one here, at 72 to 100% CPU, `browser_regressions` passed in both engines, all
 `web/tests/step-cleanups.test.js` plays the check on its stand-in page with the
 wait failing as Playwright fails a timeout, the read answering, failing,
 throwing as it is called or never answering, and the call that puts the camera
-back each of those four ways, with `setTimeout` mocked and the timers of
-`READ_LIMIT`'s length counted: the wait's message first and then what the read
-gave; the read asked once, right after the wait failed, and each limit waited
-out to the millisecond; the camera put back once, after the read and last; the
-names added to `readsCutShort` after any already there; two limits, the read's
-and the call's; and nothing printed. And it runs the check inside the harness's
+back each of those four ways; and with the wait failing as it does on a page
+that has gone and on one that has crashed in Chromium, after which the `catch`
+reads the page all the same, as after any failure of the wait. Each play has
+`setTimeout` mocked and the timers of `READ_LIMIT`'s length counted, and checks
+the wait's message first and then what the read gave; the read asked once,
+right after the wait failed, and each limit waited out to the millisecond; the
+camera put back once, after the read and last; the names added to
+`readsCutShort` after any already there; two limits, the read's and the call's;
+and nothing printed. And it runs the check inside the harness's
 `engines()` and `main()`, as `browser_regressions` runs it, in a process of its
 own on a stand-in for Playwright, with the timers of `READ_LIMIT`'s and
 `CLOSE_LIMIT`'s lengths lasting a tenth of a second and counted, for a read that
