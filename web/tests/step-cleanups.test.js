@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { format } from 'node:util';
 
 // The page calls that put the page back after a step, for the steps after
 // it, in live_camera, browser_regressions and scanner_repair (each once in
@@ -55,9 +56,21 @@ function outcomeOf(running) {
   return seen;
 }
 
+// What `console` prints during one test, each line as it would print it,
+// with each of its methods that print mocked, which the test's mocks put
+// back as it ends. engines() prints a step's failure; neither the step nor
+// the call that puts its page back prints anything itself.
+function printed(t) {
+  const lines = [];
+  for (const method of ['log', 'info', 'warn', 'error', 'debug', 'trace', 'dir'])
+    t.mock.method(console, method, (...args) => { lines.push(format(...args)); });
+  return lines;
+}
+
 // Each report starts with the empty cleanupErrors that engines() gives it,
-// which keeps only the closes that failed: a call that puts the page back and
-// fails goes in stepCleanupErrors, never there.
+// but in the test of lists that have something in them already, where it has
+// a close that failed. That list keeps only the closes that failed: a call
+// that puts the page back and fails goes in stepCleanupErrors, never there.
 describe('stepThenPutBack(), the same in each of the three suites', () => {
   for (const [suite, { stepThenPutBack }] of Object.entries(SUITES)) {
     // A step that passes or fails, and a call that puts the page back as `way`
@@ -157,12 +170,26 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
     test(`${suite}: the call is asked only once the step has settled`, async () => {
       const events = [];
       let release;
-      const running = stepThenPutBack({}, 'viewport', () => new Promise((resolve) => { release = resolve; }),
+      const running = stepThenPutBack({ cleanupErrors: [] }, 'viewport', () => new Promise((resolve) => { release = resolve; }),
         async () => { events.push('put back'); });
       await tick();
       assert.deepEqual(events, [], 'not while the step runs');
       release(); await running;
       assert.deepEqual(events, ['put back']);
+    });
+
+    test(`${suite}: nothing is printed for the call, whatever it does, after a pass or a failure`, async (t) => {
+      const counted = limitsCounted(t), lines = printed(t);
+      try {
+        for (const passes of [true, false])
+          for (const way of WAYS) {
+            const seen = outcomeOf(stepThenPutBack({ cleanupErrors: [] }, 'viewport', ...play(passes, way, [])));
+            await tick();
+            if (way === 'never') { t.mock.timers.tick(READ_LIMIT); await tick(); }
+            assert.notEqual(seen.outcome, null, `${passes ? 'a pass' : 'a failure'} and a call that does "${way}": settled`);
+          }
+        assert.deepEqual(lines, [], 'engines() prints the failure, and nothing else is printed');
+      } finally { counted.restore(); }
     });
   }
 });
@@ -305,11 +332,11 @@ const SITES = [
 // Plays `site` on a stand-in page and a report as its suite starts it, with
 // engines()'s empty cleanupErrors, with the step passing or failing and the
 // call that puts the page back answering as `way` says, and checks how it
-// ends: what is thrown, the report, the calls in order, and the one
-// READ_LIMIT the call has, which a call that never answers waits out to the
-// millisecond.
+// ends: what is thrown, the report, the calls in order, the one READ_LIMIT
+// the call has, which a call that never answers waits out to the
+// millisecond, and that nothing is printed.
 async function check(t, site, passes, way) {
-  const counted = limitsCounted(t);
+  const counted = limitsCounted(t), lines = printed(t);
   try {
     const page = standInPage(site, passes, way), report = { browser: 'chromium', cleanupErrors: [], checks: [] };
     const seen = outcomeOf(site.run(page, report));
@@ -344,6 +371,7 @@ async function check(t, site, passes, way) {
     assert.equal(page.calls.filter((call) => call.putBack).length, 1, 'asked once');
     assert.equal(page.calls.length - putBack - 1, passes && way === 'answer' && site.next ? 1 : 0, 'what came after it');
     assert.equal(counted.limits, 1, 'one READ_LIMIT, the call\'s');
+    assert.deepEqual(lines, [], 'nothing printed: engines() prints the failure');
   } finally { counted.restore(); }
 }
 

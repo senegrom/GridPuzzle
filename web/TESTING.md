@@ -808,24 +808,25 @@ it with its own error, and one that answers letting the suite go on as before;
 the names in `readsCutShort` and `stepCleanupErrors`, no list with nothing in
 it, and the empty `cleanupErrors` that each report starts with, as `engines()`
 gives it, left empty; the call that puts the page back asked once, after the
-step's last call; and one limit for it, waited out to the millisecond. It reads
-that each suite hands those steps its engine's report, and checks that a scan
-without the fallback sets no limit and that `live_camera`'s `catch` keeps a
-name already in the list. And it runs `live_camera` as it is, in a process of
-its own, on a stand-in for Playwright whose page plays the suite's first step,
-passing it or failing it at its first screen size, and fails the second step as
-it starts, with the timers of `READ_LIMIT`'s and `CLOSE_LIMIT`'s lengths
-lasting a tenth of a second and counted: the step passing and its call
-answering or never answering; the step failing and its call never answering or
-rejecting; and, as in the WebKit hang, the step failing, nothing answering
-after it and the browser never closing. Each run ends by itself, each engine's
-report with the failure it should have: the second step's own when the call
-answered after a pass, the call's name when it never answered after a pass, and
-otherwise the first step's own. A call cut short is named ahead of the reads in
-`readsCutShort` and a call that fails is in `stepCleanupErrors`;
-`cleanupErrors` has nothing but the close of the browser that never closes; and
-nothing on stderr names the call or shows its error unless the call is the
-failure.
+step's last call; one limit for it, waited out to the millisecond; and nothing
+printed, whatever the call does, with `console` mocked, since `engines()`
+prints the failure. It reads that each suite hands those steps its engine's
+report, and checks that a scan without the fallback sets no limit and that
+`live_camera`'s `catch` keeps a name already in the list. And it runs
+`live_camera` as it is, in a process of its own, on a stand-in for Playwright
+whose page plays the suite's first step, passing it or failing it at its first
+screen size, and fails the second step as it starts, with the timers of
+`READ_LIMIT`'s and `CLOSE_LIMIT`'s lengths lasting a tenth of a second and
+counted: the step passing and its call answering or never answering; the step
+failing and its call never answering or rejecting; and, as in the WebKit hang,
+the step failing, nothing answering after it and the browser never closing.
+Each run ends by itself, each engine's report with the failure it should have:
+the second step's own when the call answered after a pass, the call's name when
+it never answered after a pass, and otherwise the first step's own. A call cut
+short is named ahead of the reads in `readsCutShort` and a call that fails is
+in `stepCleanupErrors`; `cleanupErrors` has nothing but the close of the
+browser that never closes; and nothing on stderr names the call or shows its
+error unless the call is the failure.
 
 Until November 2026 the reads that six other suites make of their page in a
 `catch` or a `finally`, for their report, had no limit either. `live_motion`'s
