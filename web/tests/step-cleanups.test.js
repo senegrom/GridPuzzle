@@ -423,9 +423,15 @@ for (const site of SITES)
 // failed or been cut short. Played on the stand-in page above, with the wait
 // failing as Playwright fails a timeout, the read answering, failing,
 // throwing as it is called or never answering, and the call answering,
-// failing, throwing or never answering.
+// failing, throwing or never answering; and once with the wait failing as it
+// does on a page that has gone, which the catch reads all the same, as it
+// always did after any failure of the wait.
 const OWNERSHIP = SITES.find(({ name }) => name === 'camera after camera ownership');
 const SOLVE_FAILED = new Error('page.waitForFunction: Timeout 180000ms exceeded.');
+// How the wait fails on a page that has crashed in WebKit, or whose browser
+// has gone (GONE in watch.cjs); the page's other calls then fail as
+// CALL_FAILED does.
+const SOLVE_GONE = new Error('page.waitForFunction: Target page, context or browser has been closed');
 const SOLVE_WAIT_READ = 'page after camera ownership\'s solve wait';
 const SHOWED = { status: 'Solving the puzzle.', detail: 'Starting Python.', result: null, solverWorkers: 0 };
 // The read as the page is asked for it: the same four things as before it
@@ -473,7 +479,7 @@ async function solveWaitFails(t, readWay, putBackWay, { site = SOLVE_WAIT_FAILS,
     assert.notEqual(seen.outcome, null, 'the step ends');
     const { error } = seen.outcome;
     assert.ok(error instanceof Error, `the step fails with an Error: ${error}`);
-    assert.equal(error.message, `${SOLVE_FAILED.message}; ${says}`, 'the wait\'s message, then what the read gave');
+    assert.equal(error.message, `${site.failure.message}; ${says}`, 'the wait\'s message, then what the read gave');
     const putBack = page.calls.findIndex((call) => call.putBack);
     assert.deepEqual([page.calls.filter((call) => call.read).length, page.calls.filter((call) => call.putBack).length], [1, 1],
       'read once, put back once');
@@ -501,6 +507,10 @@ describe('browser_regressions: camera ownership\'s solve wait fails, and its cat
 
   test('a read that fails with something other than an Error says what it failed with', (t) => solveWaitFails(t, 'reject', 'answer',
     { site: { ...SOLVE_WAIT_FAILS, readFailure: 'no Error either' }, says: 'the page could not be read: no Error either' }));
+
+  test('a wait that fails because the page has gone, not by its timeout: the page is read all the same, and why it could not be read follows the wait\'s message',
+    (t) => solveWaitFails(t, 'reject', 'reject', { site: { ...SOLVE_WAIT_FAILS, failure: SOLVE_GONE, readFailure: CALL_FAILED },
+      says: `the page could not be read: ${CALL_FAILED.message}` }));
 });
 
 test('browser_regressions: a scan without the fallback has nothing to put back, and sets no limit', async (t) => {
@@ -582,11 +592,12 @@ const SERVER = `require("node:http").createServer((request, response) => respons
 // What each run loads first: that server for serve()'s spawn, and timers of
 // READ_LIMIT's and CLOSE_LIMIT's lengths that last a tenth of a second and
 // are counted, the counts printed as the process exits. Nothing else such a
-// run starts sets a timer of either length: in each engine, live_camera's
-// first step's call that puts the viewport back sets one of READ_LIMIT's and
-// the catch's reads one more, the camera-ownership check's read after its
-// solve wait one and its call that puts the camera back one more, and the
-// browser's close one of CLOSE_LIMIT's.
+// run starts sets a timer of either length. In each engine, a run of
+// live_camera sets one of READ_LIMIT's for its first step's call that puts
+// the viewport back and one more for its catch's reads; a run of the
+// camera-ownership check sets one for its read after the solve wait and one
+// more for its call that puts the camera back; and in either run the
+// browser's close sets one of CLOSE_LIMIT's.
 const PRELOAD = `const children = require("node:child_process"), { spawn } = children;
 children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: ${JSON.stringify(os.tmpdir())} });
 const { setTimeout: later } = globalThis, limits = { ${READ_LIMIT}: 0, ${CLOSE_LIMIT}: 0 };
