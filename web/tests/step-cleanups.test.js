@@ -15,8 +15,12 @@ import { format } from 'node:util';
 // page that passes the step or fails it and then answers the call, fails it,
 // throws as it is called or never answers; the report each suite hands those
 // steps; and live_camera run as it is, in a process of its own, on a stand-in
-// for Playwright whose page plays its first step. Loading watch.cjs or a
-// suite needs no Playwright.
+// for Playwright whose page plays its first step. Then the read that
+// browser_regressions' camera-ownership check makes of its page when its
+// solve wait fails, before its call that puts the camera back, which has
+// READ_LIMIT too: played on the stand-in page, and in a process of its own
+// inside the harness's engines(). Loading watch.cjs or a suite needs no
+// Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 const camera = require('../../scripts/live_camera_regressions.cjs');
@@ -29,10 +33,12 @@ const SUITES = { live_camera: camera, browser_regressions: regressions, scanner_
 
 // What a step fails with, what the call that puts the page back fails with,
 // and what a page's first call after that call fails with, so that a test can
-// tell that the suite went on past it.
+// tell that the suite went on past it; and what a read of the page after a
+// step's failure fails with.
 const STEP_FAILED = new Error('Timeout 20000ms exceeded.');
 const CALL_FAILED = new Error('page.evaluate: Target page, context or browser has been closed');
 const WENT_ON = new Error('the step after it');
+const READ_FAILED = new Error('page.evaluate: Execution context was destroyed, most likely because of a navigation');
 const WAYS = ['answer', 'reject', 'throws', 'never'];
 
 // Sets mocked timers going for one test, with each timer of READ_LIMIT's
@@ -211,11 +217,15 @@ describe('stepThenPutBack(), the same in each of the three suites', () => {
 // every call it is asked (`calls`, each { kind, selector, args, source },
 // `source` that of a function it is handed, with its whitespace taken out),
 // answers each as `site.answer(call, state)` says, fails the step at the call
-// `site.failAt` picks out when `passes` is false, and answers the call that
-// puts the page back, `site.isPutBack`, as `way` says: "answer", "reject",
-// "throws" (as it is called) or "never". Any call after that one fails with
-// WENT_ON. `size` is what viewportSize() gives, the page's own size.
-function standInPage(site, passes, way) {
+// `site.failAt` picks out when `passes` is false, with `site.failure` or
+// else STEP_FAILED, and answers the call that puts the page back,
+// `site.isPutBack`, as `way` says: "answer", "reject", "throws" (as it is
+// called) or "never". Any call after that one fails with WENT_ON. A read that
+// `site.isRead` picks out, which the step makes after its failure, is
+// answered as `readWay` says, the same four ways, failing with
+// `site.readFailure` or else READ_FAILED. `size` is what viewportSize()
+// gives, the page's own size.
+function standInPage(site, passes, way, readWay = 'answer') {
   const calls = [], state = { stopped: 0 }, size = { width: 430, height: 932 };
   let after = false;
   const ask = (kind, selector, args) => {
@@ -230,7 +240,14 @@ function standInPage(site, passes, way) {
       if (way === 'never') return new Promise(() => {});
       return Promise.resolve();
     }
-    if (!passes && site.failAt(call, size)) { call.failed = true; return Promise.reject(STEP_FAILED); }
+    if (site.isRead?.(call)) {
+      call.read = true;
+      const failure = site.readFailure ?? READ_FAILED;
+      if (readWay === 'throws') throw failure;
+      if (readWay === 'reject') return Promise.reject(failure);
+      if (readWay === 'never') return new Promise(() => {});
+    }
+    if (!passes && site.failAt(call, size)) { call.failed = true; return Promise.reject(site.failure ?? STEP_FAILED); }
     return Promise.resolve(site.answer(call, state));
   };
   const on = (kind) => (selector, ...args) => ask(kind, typeof selector === 'string' ? selector : undefined,
@@ -399,6 +416,93 @@ for (const site of SITES)
     }
   });
 
+// browser_regressions' camera-ownership check when its 180-s solve wait
+// fails: the wait's catch reads what the page showed, through readWithin()
+// with READ_LIMIT, for the failure's message after the wait's own, and the
+// step's call that puts the camera back comes once that read has answered,
+// failed or been cut short. Played on the stand-in page above, with the wait
+// failing as Playwright fails a timeout, the read answering, failing,
+// throwing as it is called or never answering, and the call answering,
+// failing, throwing or never answering.
+const OWNERSHIP = SITES.find(({ name }) => name === 'camera after camera ownership');
+const SOLVE_FAILED = new Error('page.waitForFunction: Timeout 180000ms exceeded.');
+const SOLVE_WAIT_READ = 'page after camera ownership\'s solve wait';
+const SHOWED = { status: 'Solving the puzzle.', detail: 'Starting Python.', result: null, solverWorkers: 0 };
+// The read as the page is asked for it: the same four things as before it
+// had a limit.
+const SHOWED_SOURCE = '()=>({status:document.querySelector("#status-text")?.textContent,'
+  + 'detail:document.querySelector("#status-detail")?.textContent,result:window.testState().result?.status??null,'
+  + 'solverWorkers:window.cameraTest?.solverWorkers,})';
+const SOLVE_WAIT_FAILS = { ...OWNERSHIP, failure: SOLVE_FAILED,
+  failAt: (call) => call.kind === 'waitForFunction' && call.args[2]?.timeout === 180000,
+  isRead: (call) => call.kind === 'evaluate' && call.source === SHOWED_SOURCE,
+  answer: (call, state) => (call.read ? structuredClone(SHOWED) : OWNERSHIP.answer(call, state)) };
+// What the failure's message says after the wait's own, by how the read went.
+const SAYS = { answer: `the page showed ${JSON.stringify(SHOWED)}`, reject: `the page could not be read: ${READ_FAILED.message}`,
+  throws: `the page could not be read: ${READ_FAILED.message}`, never: `the page did not answer within ${READ_LIMIT / 1000} s` };
+const DOES = { answer: 'answers', reject: 'fails', throws: 'throws as it is called', never: 'never answers' };
+
+// Plays the check on `site` (SOLVE_WAIT_FAILS or a variant of it) and
+// `report`, the read and the call as `readWay` and `putBackWay` say, and
+// checks how it ends: the wait's message first, then what the read gave; the
+// read asked once, right after the wait failed, each limit waited out to the
+// millisecond, the camera put back once, after the read and last; the names
+// added to the report's lists, `earlier` being what readsCutShort had
+// already; two READ_LIMITs, the read's and the call's; and nothing printed.
+async function solveWaitFails(t, readWay, putBackWay, { site = SOLVE_WAIT_FAILS, says = SAYS[readWay],
+  report = { browser: 'chromium', cleanupErrors: [], checks: [] } } = {}) {
+  const counted = limitsCounted(t), lines = printed(t), earlier = report.readsCutShort ?? [];
+  try {
+    const page = standInPage(site, false, putBackWay, readWay);
+    const seen = outcomeOf(regressions.cameraOwnershipRegressions(page, report));
+    await tick();
+    const read = page.calls.findIndex((call) => call.read), askedBack = () => page.calls.some((call) => call.putBack);
+    assert.ok(read > 0 && page.calls[read - 1].failed, `the page is read right after the solve wait failed (${page.calls.map((call) => call.kind).join(', ')})`);
+    if (readWay === 'never') {
+      t.mock.timers.tick(READ_LIMIT - 1); await tick();
+      assert.equal(seen.outcome, null, 'the read is waited for until the limit, not a millisecond less');
+      assert.equal(askedBack(), false, 'the camera is not put back while the read waits');
+      t.mock.timers.tick(1); await tick();
+    }
+    assert.ok(askedBack(), 'the camera is put back once the read has ended');
+    if (putBackWay === 'never') {
+      t.mock.timers.tick(READ_LIMIT - 1); await tick();
+      assert.equal(seen.outcome, null, 'the call is waited for until its own limit');
+      t.mock.timers.tick(1); await tick();
+    }
+    assert.notEqual(seen.outcome, null, 'the step ends');
+    const { error } = seen.outcome;
+    assert.ok(error instanceof Error, `the step fails with an Error: ${error}`);
+    assert.equal(error.message, `${SOLVE_FAILED.message}; ${says}`, 'the wait\'s message, then what the read gave');
+    const putBack = page.calls.findIndex((call) => call.putBack);
+    assert.deepEqual([page.calls.filter((call) => call.read).length, page.calls.filter((call) => call.putBack).length], [1, 1],
+      'read once, put back once');
+    assert.ok(putBack > read, 'the camera is put back after the read');
+    assert.equal(page.calls.length, putBack + 1, 'nothing after it');
+    const cut = [...(readWay === 'never' ? [CUT_SHORT(SOLVE_WAIT_READ)] : []), ...(putBackWay === 'never' ? [CUT_SHORT(OWNERSHIP.name)] : [])];
+    assert.deepEqual(report.readsCutShort, earlier.length || cut.length ? [...earlier, ...cut] : undefined, 'readsCutShort');
+    assert.deepEqual(report.stepCleanupErrors, ['reject', 'throws'].includes(putBackWay) ? [`${OWNERSHIP.name}: ${CALL_FAILED.message}`] : undefined,
+      'stepCleanupErrors');
+    assert.deepEqual([report.cleanupErrors, report.checks], [[], []], 'cleanupErrors and checks');
+    assert.equal(counted.limits, 2, 'one READ_LIMIT for the read, one for the call');
+    assert.deepEqual(lines, [], 'nothing printed: engines() prints the failure');
+  } finally { counted.restore(); }
+}
+
+describe('browser_regressions: camera ownership\'s solve wait fails, and its catch reads the page within READ_LIMIT', () => {
+  for (const readWay of WAYS)
+    for (const putBackWay of WAYS)
+      test(`a read that ${DOES[readWay]} and a call that ${DOES[putBackWay]}: ${{ answer: 'what the page showed', reject: 'why it could not be read',
+        throws: 'why it could not be read', never: 'the read named, and that the page did not answer' }[readWay]}, after the wait's message`,
+      (t) => solveWaitFails(t, readWay, putBackWay));
+
+  test('readsCutShort keeps the names in it already', (t) => solveWaitFails(t, 'never', 'never',
+    { report: { cleanupErrors: [], checks: [], readsCutShort: ['storageStatus: no answer within 19.9 s'] } }));
+
+  test('a read that fails with something other than an Error says what it failed with', (t) => solveWaitFails(t, 'reject', 'answer',
+    { site: { ...SOLVE_WAIT_FAILS, readFailure: 'no Error either' }, says: 'the page could not be read: no Error either' }));
+});
+
 test('browser_regressions: a scan without the fallback has nothing to put back, and sets no limit', async (t) => {
   const counted = limitsCounted(t);
   try {
@@ -478,9 +582,11 @@ const SERVER = `require("node:http").createServer((request, response) => respons
 // What each run loads first: that server for serve()'s spawn, and timers of
 // READ_LIMIT's and CLOSE_LIMIT's lengths that last a tenth of a second and
 // are counted, the counts printed as the process exits. Nothing else such a
-// run starts sets a timer of either length: the first step's call that puts
-// the viewport back sets one of READ_LIMIT's, the catch's reads one more, and
-// each browser's close one of CLOSE_LIMIT's.
+// run starts sets a timer of either length: in each engine, live_camera's
+// first step's call that puts the viewport back sets one of READ_LIMIT's and
+// the catch's reads one more, the camera-ownership check's read after its
+// solve wait one and its call that puts the camera back one more, and the
+// browser's close one of CLOSE_LIMIT's.
 const PRELOAD = `const children = require("node:child_process"), { spawn } = children;
 children.spawn = (command, args, options) => spawn(process.execPath, ["-e", ${JSON.stringify(SERVER)}], { ...options, cwd: ${JSON.stringify(os.tmpdir())} });
 const { setTimeout: later } = globalThis, limits = { ${READ_LIMIT}: 0, ${CLOSE_LIMIT}: 0 };
@@ -617,3 +723,130 @@ describe('live_camera, run as it is, puts its viewport back after its first step
         assert.equal(stderr.includes(text), failure.includes(text), `"${text}" is printed only as the failure of a step that passed`);
     });
 });
+
+// Playwright for the camera-ownership check: each engine's page plays the
+// check up to its solve wait, which fails as Playwright fails a timeout,
+// answers the catch's read of what it showed as READ says ("answer",
+// "reject" or "never") and the call that puts the camera back as PUT_BACK
+// says ("answer" or "never"). The page says on stdout when its solve wait
+// fails, when it is read, when the camera is put back and when it takes its
+// screenshot, the browser when it closes. With BROWSER_HANGS, Chromium's
+// browser never closes, as while a WebKit child holds the browser's pipes.
+// Each launch keeps the process alive until its browser closes, as a live
+// browser's pipes do.
+const OWNERSHIP_PLAYWRIGHT = `const fs = require("node:fs");
+const { READ, PUT_BACK, BROWSER_HANGS } = process.env;
+const SHOWED = ${JSON.stringify(SHOWED)}, PUZZLE = ${JSON.stringify(PUZZLE)};
+const engine = (name) => ({ async launch() {
+  const pipes = setInterval(() => {}, 1000), say = (line) => console.log(name + " " + line);
+  let stopped = 0;
+  const page = { on() {}, setDefaultTimeout() {}, url: () => "http://stand-in/",
+    selectOption: async () => {}, click: async () => {}, dispatchEvent: async () => {},
+    locator: () => ({ isHidden: async () => true }),
+    waitForFunction: async (fn, argument, options) => {
+      if (options?.timeout !== 180000) return;
+      say("fails its solve wait");
+      throw new Error(${JSON.stringify(SOLVE_FAILED.message)});
+    },
+    evaluate: (fn) => {
+      const source = String(fn).replace(/\\s+/g, "");
+      if (source === ${JSON.stringify(SHOWED_SOURCE)}) {
+        say("is read");
+        if (READ === "reject") return Promise.reject(new Error(${JSON.stringify(READ_FAILED.message)}));
+        return READ === "never" ? new Promise(() => {}) : Promise.resolve(SHOWED);
+      }
+      if (source === "()=>window.cameraTest.restore()") {
+        say("puts the camera back");
+        return PUT_BACK === "never" ? new Promise(() => {}) : Promise.resolve();
+      }
+      return Promise.resolve({ "()=>window.testState().puzzle": () => structuredClone(PUZZLE), "()=>window.cameraTest.stopped": () => ++stopped,
+        "()=>window.cameraTest.queued.length": () => 0 }[source]?.());
+    },
+    screenshot: async ({ path }) => { say("takes its screenshot"); fs.writeFileSync(path, ""); } };
+  return { contexts: () => [], on() {}, off() {}, isConnected: () => true, version: () => "1.0",
+    close: async () => {
+      say("closes its browser");
+      if (name === "chromium" && BROWSER_HANGS) return new Promise(() => {});
+      clearInterval(pipes);
+    },
+    newContext: async () => ({ on() {}, newPage: async () => page }) };
+} });
+module.exports = { chromium: engine("chromium"), webkit: engine("webkit") };
+`;
+
+// What stands in for browser_regressions, whose run has far too much before
+// the camera-ownership check for a stand-in to play: the harness's engines()
+// and main(), with the suite's report file and context, and the check called
+// with the engine's report, as the suite calls it (the test of what each
+// suite hands its steps, above, reads that call). It names the tree's modules
+// by paths it builds, so that tests/test_workflows.py does not take them for
+// modules of this file.
+const OWNERSHIP_RUNNER = `const inTree = (name) => require("node:path").join(__dirname, name);
+const { SMALL_PHONE, engines, main } = require(inTree("scripts/harness.cjs"));
+const { cameraOwnershipRegressions } = require(inTree("scripts/browser_regressions.cjs"));
+main(module, () => engines("recognition-regressions.json", async (page, report) => {
+  Object.assign(report, { scans: [], checks: [] });
+  await cameraOwnershipRegressions(page, report);
+}, { context: SMALL_PHONE }));
+`;
+
+// How that runner ends, run with PRELOAD loaded first in a tree of its own
+// with the harness, watch.cjs and browser_regressions as they are and
+// OWNERSHIP_PLAYWRIGHT for Playwright: what it printed, the counts of its
+// limits' timers and both engines' reports.
+async function ranOwnership(t, env) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gridpuzzle-step-cleanups-'));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const inTree = (name) => path.join(directory, name);
+  for (const file of ['scripts/browser_regressions.cjs', 'scripts/harness.cjs', 'scripts/watch.cjs'])
+    fs.cpSync(new URL(`../../${file}`, import.meta.url), inTree(file));
+  fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
+  fs.writeFileSync(inTree('node_modules/playwright/index.js'), OWNERSHIP_PLAYWRIGHT);
+  fs.writeFileSync(inTree('preload.cjs'), PRELOAD);
+  fs.writeFileSync(inTree('runner.cjs'), OWNERSHIP_RUNNER);
+  const ended = await finish(['-r', inTree('preload.cjs'), inTree('runner.cjs')], { cwd: directory,
+    env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', READ: env.READ,
+      PUT_BACK: env.PUT_BACK ?? 'answer', BROWSER_HANGS: env.BROWSER_HANGS ? '1' : '' } });
+  const lines = ended.stdout.trim().split(/\r?\n/), limits = /^limits (.+)$/.exec(lines.at(-1));
+  const file = inTree('browser-artifacts/recognition-regressions.json');
+  const reports = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : null;
+  return { ...ended, lines, limits: limits && JSON.parse(limits[1]), reports };
+}
+
+// Side by side: each has a tree and a process of its own, and in Node 22
+// --test-timeout limits a whole file.
+describe('the camera-ownership check, run in engines() as browser_regressions runs it, after its solve wait fails',
+  { concurrency: true }, () => {
+    const CAMERA = OWNERSHIP.name;
+    for (const [what, env, says, cutShort, chromiumCloses = []] of [
+      ['the page answers: what it showed, as ever', { READ: 'answer' }, SAYS.answer, undefined],
+      ['the read fails: why', { READ: 'reject' }, SAYS.reject, undefined],
+      ['the read never answers: the page did not answer, the read named', { READ: 'never' }, SAYS.never, [CUT_SHORT(SOLVE_WAIT_READ)]],
+      // As in the WebKit hang: nothing answers, and the browser will not close.
+      ['nothing answers after the wait and the browser will not close', { READ: 'never', PUT_BACK: 'never', BROWSER_HANGS: true }, SAYS.never,
+        [CUT_SHORT(SOLVE_WAIT_READ), CUT_SHORT(CAMERA)], ['browser: browser cleanup timed out']],
+    ])
+      test(`ends by itself when ${what}`, async (t) => {
+        const { code, killed, stdout, stderr, lines, limits, reports } = await ranOwnership(t, env);
+        assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+        assert.equal(code, 1, stderr);
+        assert.ok(reports, `both reports written: ${stdout}`);
+        const failure = `Error: ${SOLVE_FAILED.message}; ${says}`;
+        assert.deepEqual(reports.map(({ browser, status, failure: thrown, cleanupErrors, checks }) => [browser, status, thrown.split('\n')[0], cleanupErrors, checks]),
+          [['chromium', 'failed', failure, chromiumCloses, []], ['webkit', 'failed', failure, [], []]]);
+        for (const report of reports) {
+          assert.deepEqual(report.readsCutShort, cutShort, `${report.browser}'s readsCutShort`);
+          assert.equal(report.stepCleanupErrors, undefined, `${report.browser}'s stepCleanupErrors`);
+        }
+        // The wait fails, the page is read once, then the camera goes back,
+        // and then come the screenshot and the browser's close.
+        for (const name of ['chromium', 'webkit'])
+          assert.deepEqual(lines.filter((line) => line.startsWith(`${name} `) && !/^\w+ \d/.test(line)).map((line) => line.slice(name.length + 1)),
+            ['fails its solve wait', 'is read', 'puts the camera back', 'takes its screenshot', 'closes its browser'], stdout);
+        assert.deepEqual(limits, { [READ_LIMIT]: 4, [CLOSE_LIMIT]: 2 }, 'in each engine one limit for the read and one for putting the camera back');
+        // The read and the call are printed only within the failure, which
+        // engines() prints, and main() again: never by their names.
+        for (const text of [SOLVE_WAIT_READ, CAMERA]) assert.equal(stderr.includes(text), false, `"${text}" is not printed`);
+        assert.ok(stderr.includes(`${SOLVE_FAILED.message}; ${says}`), stderr);
+      });
+  });
