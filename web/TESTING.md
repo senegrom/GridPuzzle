@@ -1093,12 +1093,12 @@ replay left undone, now fails its engine too. The rule came in two steps, both
 in November 2026; before them the pass stood, each read keeping its fallback, a
 read cut short named in `readsCutShort` and one that failed nowhere. First each
 of the four suites checked for reads cut short right after the `try` whose
-`finally` reads, and threw, so that
-`engines()` failed the engine through its `catch`, which took the failure's
-screenshot, while a read that failed after a pass kept its fallback and the
-pass. Then the owner chose that such a read fails the engine too, named with
-its error, and that the rule move into `engines()`, beside the close, so that
-it takes no screenshot. By design, on a page that no longer answers anything,
+`finally` reads, and threw, so that `engines()` failed the engine through its
+`catch`, which asked for the failure's screenshot, while a read that failed
+after a pass kept its fallback and the pass. Then the owner chose that such a
+read fails the engine too, named with its error, and that the rule move into
+`engines()`, beside the close, so that it takes no screenshot. By design, on a
+page that no longer answers anything,
 such an engine now ends within about 50 seconds of its reads being asked: 19.9
 for the reads and 30 for the browser's close. With the rule in the suites the
 failure's screenshot came in between, for up to the 60 seconds these four
@@ -1208,8 +1208,9 @@ With a plan for each browser it launches, it fails only the Chromium of
 first step, by reads cut short or by reads that fail after its steps passed,
 while every other engine passes: each way every other engine, scene and fixture
 still runs and passes, every report is written, the run ends with that first
-failure, only the failing step takes a screenshot, and `live_recovery`'s record
-keeps `ok` after its checks passed, with no `failure` of its own.
+failure, only the failing step's engine asks for a screenshot, and
+`live_recovery`'s record keeps `ok` after its checks passed, with no `failure`
+of its own.
 `web/tests/harness-engines.test.js` runs `engines()` itself, through `main()`
 and on a stand-in for Playwright, with a stand-in suite whose steps pass and
 whose report names reads cut short, reads that failed or both: the engine fails

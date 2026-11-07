@@ -494,7 +494,7 @@ const headOf = (failure) => {
 // short or saw one fail, which fails each engine in engines()' finally with
 // the names of those reads (READS_FAILURE), printed on stderr, with no
 // failure screenshot, or, when its page threw an uncaught error or crashed
-// (env.EVENT), with that (EVENT_FAILURE) and a screenshot; each read's
+// (env.EVENT), with that (EVENT_FAILURE), asking for a screenshot; each read's
 // answer or fallback, the reads cut short and those of the finally that
 // failed, on the engine's report too where a scene's record keeps them, and
 // no field for a read of the catch after a pass; the page's errors and what
@@ -620,8 +620,8 @@ describe('the six suites, run as they are, read their page after their failure a
 // errors: the report is still written and the browser closed, but no failure
 // screenshot is taken, as for a browser that would not close after a pass.
 // And as when the browser's close fails, an engine whose page threw an
-// uncaught error, or crashed, fails with that, by engines()' own check, with
-// its screenshot, while the reads are named in its report alone.
+// uncaught error, or crashed, fails with that, by engines()' own check, asking
+// for its screenshot, while the reads are named in its report alone.
 describe('the four suites whose finally reads, run as they are through a pass', { concurrency: true }, () => {
   const mixed = [['the snapshot answers and the stop never does', { final: 'answer', stop: 'never' }],
     ['the snapshot fails and the stop never answers', { final: 'reject', stop: 'never' }],
@@ -645,9 +645,10 @@ describe('the four suites whose finally reads, run as they are through a pass', 
 // engine passes. Either way the first's other engine and the next scenes or
 // fixtures still run and pass, reading their page as ever, every engine's
 // report reaches the suite's own, and the run ends with that first failure;
-// only a failing step takes a screenshot. A scene of live_recovery whose
-// reads were cut short or failed after its checks passed keeps `ok` in its
-// record, and has no `failure` there, which a scene's own failure gives it.
+// only after a failing step is a screenshot asked for. A scene of
+// live_recovery whose reads were cut short or failed after its checks passed
+// keeps `ok` in its record, and has no `failure` there, which a scene's own
+// failure gives it.
 describe('live_recovery\'s scenes and external_replay\'s fixtures, after one engine has failed', { concurrency: true }, () => {
   for (const [suite, unit] of [['live_recovery', 'scene'], ['external_replay', 'fixture']])
     test(`${suite} runs every other engine and ${unit} through to its pass after reads cut short or failed fail the first engine that passed, as after that engine's own failure`, async (t) => {

@@ -13,12 +13,12 @@ import { createRequire } from 'node:module';
 // fails, in engines()' finally, beside the browser's close, with the reads
 // named and no failure screenshot; its report is written, its browser
 // closed, the next engine run and the first failure thrown again at the end.
-// A browser lost after the reads failed leads their failure once its news
-// has come, if that is within a second. A suite's own failure, an uncaught
-// page error, a page lost, and the browser lost when its news comes before
-// the reads fail, still fail the engine first, asking for their screenshot,
-// as before; a close that fails too stays in cleanupErrors, after the
-// reads' failure.
+// A browser lost whose news comes after the reads failed leads their
+// failure, once that news has come, if within a second. A suite's own
+// failure, an uncaught page error, a page lost, and the browser lost when
+// its news comes before the reads fail, still fail the engine first,
+// asking for their screenshot, as before; a close that fails too stays in
+// cleanupErrors, after the reads' failure.
 // The suite runs as the suites do, through main(), in a process of its own,
 // on a stand-in for Playwright; loading the harness needs neither
 // Playwright nor Python.
@@ -254,7 +254,7 @@ describe('engines() keeps first a suite\'s own failure, a page error, a page los
     ['page crashed', { event: 'crash' }, `page crashed N s after launch (http://stand-in/)\n${lost}`],
     ['browser disconnected', { event: 'disconnect' }, `browser disconnected N s after launch\n${lost}`],
   ])
-    test(`an engine whose ${what} fails with that, with its screenshot, whatever its finally cut short or saw fail`, async (t) => {
+    test(`an engine whose ${what} fails with that, asking for its screenshot, whatever its finally cut short or saw fail`, async (t) => {
       const { code, killed, stdout, stderr, lines, reports, shot } = await ran(t, { chromium: { ...plan, ...reads }, webkit: {} });
       assert.deepEqual({ killed, code, reports: reports.map(seen), said: [said(lines, 'chromium'), said(lines, 'webkit')], shot: shot('chromium') },
         { killed: false, code: 1, reports: [{ ...PASSED, status: 'failed', failure, ...reads }, PASSED],
