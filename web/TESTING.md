@@ -108,10 +108,11 @@ wait there for ever, but for the reads that `live_camera` makes of its page for
 its report, in its engine's `catch`, and those that `live_motion`,
 `live_noise`, `live_recovery`, `external_replay`, `solver_update` and
 `browser_smoke` make of theirs in a `catch` or a `finally`, a fixture's stop
-among them, and the calls that put the page back after some steps of
-`live_camera`, `browser_regressions` and `scanner_repair`, which have had a
-limit of their own since November 2026 (`READ_LIMIT`, below). On a browser
-that has gone they end at once.
+among them, the one that `browser_regressions` makes of its page when its
+camera-ownership check's wait for the solve fails, and the calls that put the
+page back after some steps of `live_camera`, `browser_regressions` and
+`scanner_repair`, which have had a limit of their own since November 2026
+(`READ_LIMIT`, below). On a browser that has gone they end at once.
 The hang below is the exception: with a WebKit child still holding the pipes,
 a closed page's calls end at once, but `context.close()` and `page.close()`
 wait as `browser.close()` does, and so does `page.evaluate()` on a page still
@@ -757,20 +758,18 @@ call cut short or failed after a step's own failure, which is printed as
 before. `live_camera`'s report has `readsCutShort` after any failure, as
 before, since its `catch` reads the page after any failure: a call cut short
 heads the list, and the `catch` adds its reads' names after it, where it used
-to replace the list. `browser_regressions` and `scanner_repair` read nothing
-else of their page, so their reports have `readsCutShort` only once such a call
-was cut short, and the three have `stepCleanupErrors` only once such a call
-failed: the report of a run in which none was keeps the fields it always had.
-By design, after a step fails on a page that never answers, the engine's
-browser now begins to close about 60 seconds after the failure in `live_camera`
-(19.9 for the call, 19.9 for the `catch`'s reads and up to 20 for the failure's
-screenshot) and about 40 in the other two (19.9 for the call and up to 20 for
-the screenshot), and that close has `CLOSE_LIMIT`. That does not hold for
-`browser_regressions`' camera-ownership check: when its 180-second wait for the
-solve fails, its own `catch` reads the page with `page.evaluate()` to say what
-the page showed, and that read, like the step's other `page.evaluate()` calls,
-has no limit, so that a page that never answers still holds the run there for
-ever, before the call that puts the page back. Measured on Windows in Chromium,
+to replace the list. `scanner_repair` reads nothing else of its page after a
+failure, and `browser_regressions` only when its camera-ownership check's wait
+for the solve fails (below), so their reports have `readsCutShort` only once
+such a call or that read was cut short, and the three have `stepCleanupErrors`
+only once such a call failed: the report of a run in which none was keeps the
+fields it always had. By design, after a step fails on a page that never
+answers, the engine's browser now begins to close about 60 seconds after the
+failure in `live_camera` (19.9 for the call, 19.9 for the `catch`'s reads and
+up to 20 for the failure's screenshot) and about 40 in the other two (19.9 for
+the call and up to 20 for the screenshot), or about 60 when the
+camera-ownership check's wait for the solve fails (19.9 for its read as well),
+and that close has `CLOSE_LIMIT`. Measured on Windows in Chromium,
 with the step made to fail at a call inside it and its page's main thread then
 kept busy for good, one run of each as it was and as it is now, on the
 process's own clock from that failure and with the host's load in samples taken
@@ -827,6 +826,68 @@ short is named ahead of the reads in `readsCutShort` and a call that fails is
 in `stepCleanupErrors`; `cleanupErrors` has nothing but the close of the
 browser that never closes; and nothing on stderr names the call or shows its
 error unless the call is the failure.
+
+Until November 2026 the read that `browser_regressions`' camera-ownership check
+makes of its page when its 180-second wait for the solve fails had no limit
+either. The wait's `catch` reads the status text and detail, the result's
+status and the controlled camera's count of new solver workers with
+`page.evaluate()`, to say after the wait's own message what the page showed,
+and Playwright gives that call no timeout, so that on a page that never
+answered the step waited there for ever, before its call that puts the camera
+back and the engine's close, with no report for that engine; and a read that
+failed replaced the wait's message with its own error. The read now goes
+through `readWithin()` with `READ_LIMIT` too, as the owner chose, in
+`shownAfterSolveWait()`, which catches the read's own failure, as
+`stepThenPutBack()` catches its call's, so that it can say why. The step's
+failure still starts with the wait's message, followed by `the page showed
+{…}`, as before, by `the page did not answer within 19.9 s` for a read cut
+short, or by `the page could not be read: <its error>` for one that fails,
+which leaves the page unread. A read cut short is also named in the engine's
+report's `readsCutShort`, as `page after camera ownership's solve wait: no
+answer within 19.9 s`, the list made when it first gets a name and kept with
+any names already in it. The step's call that puts the camera back comes once
+the read has ended, as before, and is named after it when it is cut short too.
+Nothing is printed for the read: `engines()` prints the step's failure, which
+says what the read gave. The step's other calls, made before any failure, have
+no limit, as before. By design, after that wait fails on a page that never
+answers, the engine's browser now begins to close about 60 seconds after the
+failure (19.9 for the read, 19.9 for the call and up to 20 for the failure's
+screenshot). Measured on Windows in Chromium, with that wait made to fail and
+the page's main thread then kept busy for good, as above, on the process's own
+clock from that failure and with the host's load in samples taken during the
+runs: as it was, in one run at 48 to 100% CPU, the read was asked at once and
+was still waiting when the run was stopped, as last sampled 120.0 s after the
+failure, with no report. As it is now, in two runs at 40 to 95% CPU, the read
+was cut short 19.9 s after the failure and the call that puts the camera back
+19.9 s after that, the failure's screenshot ran out of time 20 s later, and the
+browser then closed, which failed the read and the call still waiting; each run
+ended by itself, its `exit` event 59.9 s after the failure, with exit code 1
+and its report written with the step's own failure, ending `the page did not
+answer within 19.9 s`, the read and then the call in `readsCutShort`, and
+nothing in `cleanupErrors`. With nothing sabotaged, in one run at master and
+one here, at 72 to 100% CPU, `browser_regressions` passed in both engines, all
+14 checks, its reports with the same fields at master and here.
+`web/tests/step-cleanups.test.js` plays the check on its stand-in page with the
+wait failing as Playwright fails a timeout, the read answering, failing,
+throwing as it is called or never answering, and the call that puts the camera
+back each of those four ways; and with the wait failing as it does on a page
+that has gone and on one that has crashed in Chromium, after which the `catch`
+reads the page all the same, as after any failure of the wait. Each play has
+`setTimeout` mocked and the timers of `READ_LIMIT`'s length counted, and checks
+the wait's message first and then what the read gave; the read asked once,
+right after the wait failed, and each limit waited out to the millisecond; the
+camera put back once, after the read and last; the names added to
+`readsCutShort` after any already there; two limits, the read's and the call's;
+and nothing printed. And it runs the check inside the harness's
+`engines()` and `main()`, as `browser_regressions` runs it, in a process of its
+own on a stand-in for Playwright, with the timers of `READ_LIMIT`'s and
+`CLOSE_LIMIT`'s lengths lasting a tenth of a second and counted, for a read that
+answers, fails or never answers and, as in the WebKit hang, for one that never
+answers with a call that never answers either and a browser that will not
+close: each run ends by itself with exit code 1, both engines' reports written
+with that failure and the names in `readsCutShort`, the page read once and the
+camera put back after it, before the failure's screenshot and the browser's
+close, and the read's name printed nowhere.
 
 Until November 2026 the reads that six other suites make of their page in a
 `catch` or a `finally`, for their report, had no limit either. `live_motion`'s

@@ -525,6 +525,43 @@ async function installControlledCamera(page) {
     };
   });
 }
+// The camera-ownership check's read of its page after its solve wait failed
+// (shownAfterSolveWait()), by its name in the report's `readsCutShort`.
+const SOLVE_WAIT_READ = "page after camera ownership's solve wait";
+
+// What the page showed when the camera-ownership check's solve wait failed,
+// for the failure's message after the wait's own: the status text and
+// detail, the result's status and the controlled camera's count of new
+// solver workers. The read goes through readWithin() with READ_LIMIT
+// (watch.cjs), as stepThenPutBack()'s call does, since Playwright gives
+// page.evaluate() no timeout: a page that will not answer, as in the WebKit
+// hang or with its main thread kept busy (web/TESTING.md), cannot hold the
+// step there, before its call that puts the camera back. A read still waiting
+// at the limit is named in the engine's report's `readsCutShort`, as
+// `page after camera ownership's solve wait: no answer within 19.9 s`, the
+// list made when it first gets a name, and the message then says that the
+// page did not answer within 19.9 s; a read that fails leaves the page unread,
+// and the message says why.
+async function shownAfterSolveWait(page, report) {
+  const { values: { [SOLVE_WAIT_READ]: read }, cutShort } = await readWithin({
+    [SOLVE_WAIT_READ]: [async () => {
+      try {
+        return { seen: await page.evaluate(() => ({
+          status: document.querySelector("#status-text")?.textContent,
+          detail: document.querySelector("#status-detail")?.textContent,
+          result: window.testState().result?.status ?? null,
+          solverWorkers: window.cameraTest?.solverWorkers,
+        })) };
+      } catch (error) { return { error }; }
+    }, null],
+  }, READ_LIMIT);
+  if (cutShort.length) {
+    report.readsCutShort = [...(report.readsCutShort ?? []), ...cutShort];
+    return `the page did not answer within ${READ_LIMIT / 1000} s`;
+  }
+  if ("error" in read) return `the page could not be read: ${read.error?.message || String(read.error)}`;
+  return `the page showed ${JSON.stringify(read.seen)}`;
+}
 async function cameraOwnershipRegressions(page, report) {
   await page.selectOption("#puzzle-type", "sudoku");
   await page.click("#example");
@@ -552,14 +589,10 @@ async function cameraOwnershipRegressions(page, report) {
       else {
         await page.waitForFunction(() => window.testState().result?.status === "unique", null, { timeout: 180000 })
           .catch(async (error) => {
-            // Say what the page showed, so a timeout explains itself.
-            const seen = await page.evaluate(() => ({
-              status: document.querySelector("#status-text")?.textContent,
-              detail: document.querySelector("#status-detail")?.textContent,
-              result: window.testState().result?.status ?? null,
-              solverWorkers: window.cameraTest?.solverWorkers,
-            }));
-            throw new Error(`${error.message}; the page showed ${JSON.stringify(seen)}`);
+            // Say what the page showed, so a timeout explains itself, that it
+            // did not answer within READ_LIMIT or why it could not be read
+            // (shownAfterSolveWait()).
+            throw new Error(`${error.message}; ${await shownAfterSolveWait(page, report)}`);
           });
         assert.equal(await page.evaluate(() => window.cameraTest.solverWorkers), 0,
           "the camera's previews and the Solve after them reuse the page's interpreter");
