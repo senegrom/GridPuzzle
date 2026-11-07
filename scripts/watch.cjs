@@ -54,7 +54,9 @@ async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
 // report, may take, all those of one catch or finally together
 // (readWithin()): live_camera's, live_motion's, live_noise's,
 // live_recovery's, external_replay's, solver_update's and browser_smoke's,
-// the stop of a suite's fixture among them; and how long the call after
+// the stop of a suite's fixture among them, and browser_regressions' when
+// its camera-ownership check's wait for the solve fails
+// (shownAfterSolveWait()); and how long the call after
 // some steps of live_camera, browser_regressions and scanner_repair that
 // puts the page back for the steps after them may take (the
 // stepThenPutBack() of each), a page.evaluate() or a
