@@ -928,8 +928,8 @@ alone until the rule for reads after a pass moved into `engines()` (below); the
 list is empty when nothing was cut short. The four whose `finally` reads also
 keep beside it `readsFailed`, which names each read of that `finally` that
 failed, with its error, as `readWithin()` names it, and is empty when none did;
-a read of a `catch` that fails is named nowhere, as before. A report has the
-lists only once its suite has reached
+a read that fails in the `catch` of any of the six is named nowhere, as
+before. A report has the lists only once its suite has reached
 those reads: in `live_noise`, `live_recovery` and `external_replay` once the
 page is ready (`body[data-ready]`), since their `try` starts after that, so
 that a scene of `live_recovery` whose page never gets ready has no record; in
