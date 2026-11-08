@@ -78,7 +78,7 @@ function labels(block){
  const digits=flags.flatMap((flag,i)=>i&&flag?[i]:[]);return{value:flags[0]&&digits.length===1?digits[0]:null,ambiguous:!flags[0]&&digits.length>0};}));
 }
 // The replay's stop, after a pass or a failure, and what it says it left
-// (`closed`, which the finally then checks), or null when the stop fails, and
+// (`closed`, which checkClosed() checks), or null when the stop fails, and
 // then nothing is checked. It has READ_LIMIT (watch.cjs), so that a page that
 // will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
 // run here: a stop still waiting then leaves null too, and `readsCutShort`
@@ -91,6 +91,30 @@ async function stopReplay(page,r){
  const {values,cutShort,failed}=await readWithin({closed:[()=>page.evaluate(()=>window.externalReplay?.stop()),null]},READ_LIMIT);
  r.closed=values.closed;r.readsCutShort=cutShort;r.readsFailed=failed;
 }
+// Checks what a stop that answered says it left: the replay inactive, with no
+// retained sources and no scratch pixels, each compared as assert.equal() did
+// (Object.is()), and each that fails with a message saying which check it is
+// and what the stop gave (a string in quotes). Every check is made, and each
+// that fails is named in the engine's report's `stepCleanupErrors`, as
+// `closed: <its message>`, the list made when it first gets one, as the
+// suites with a stepThenPutBack() name a call that fails to put their page
+// back. After steps that passed, the first check that failed is then thrown,
+// as an assertion with its message alone (assert.fail(): assert.equal()
+// would add its own diff), which fails the engine through engines()' catch,
+// with the failure's screenshot, as it always did; after a step's own failure
+// nothing is thrown, so that the engine fails with the step's own error. With
+// `closed` null, or undefined from a stop that answered nothing, as the
+// page's does when a step failed before begin() set `window.externalReplay`
+// (on image data that will not decode, say), there is nothing to check.
+function checkClosed(r,stepsPassed){
+ if(!r.closed)return;
+ const shown=value=>typeof value==='string'?JSON.stringify(value):String(value);
+ const failed=[['active',false,'the replay inactive'],['retainedSources',0,'no retained sources'],['scratchPixels',0,'no scratch pixels']]
+  .filter(([field,expected])=>!Object.is(r.closed[field],expected))
+  .map(([field,,left])=>`the stop must leave ${left} (${field}: ${shown(r.closed[field])})`);
+ if(failed.length)r.stepCleanupErrors=[...(r.stepCleanupErrors??[]),...failed.map(message=>`closed: ${message}`)];
+ if(stepsPassed&&failed.length)assert.fail(failed[0]);
+}
 async function run(){
  const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=replayFixtures(corpus),reports=[],failures=[];
  const server=await serve();
@@ -99,6 +123,7 @@ async function run(){
    const file=`external-replay-${i}.json`;try{await engines(file,async(page,r)=>{
     r.source={name:f.name,sha256:f.sha256,revision:corpus.revision,index:i,selection:'first 3 of the existing hash-selected test slice; no performance filtering'};
     await page.goto(server.base);await page.waitForSelector('body[data-ready="true"]');
+    let stepsPassed=false;
     try{
      await page.evaluate(begin,f.data);await page.click('#external-start');await page.waitForFunction(()=>externalReplay.started||externalReplay.error,null,{timeout:25000});
      assert.equal(await page.evaluate(()=>externalReplay.error),null,'actual video must start');
@@ -115,9 +140,12 @@ async function run(){
      assert.equal(await page.evaluate(()=>externalReplay.capture()),false,'stopped frames cannot attach stale clues');
      if(r.score)assert.deepEqual(r.score.unflagged,[],'every wrong, missed or invented clue must be flagged for review');
      requireAcquisition(r);
+     stepsPassed=true;
     }finally{
+     // The stop, then its checks, which throw only after steps that passed: a
+     // step's own error is the engine's failure (checkClosed()).
      await stopReplay(page,r);
-     if(r.closed){assert.equal(r.closed.active,false);assert.equal(r.closed.retainedSources,0);assert.equal(r.closed.scratchPixels,0);}
+     checkClosed(r,stepsPassed);
     }
    },{timeout:60000});}catch(e){failures.push(e);}finally{if(fs.existsSync(`browser-artifacts/${file}`))reports.push(...JSON.parse(fs.readFileSync(`browser-artifacts/${file}`,'utf8')));}
   }
@@ -125,4 +153,4 @@ async function run(){
  }finally{await server.close();fs.mkdirSync('browser-artifacts',{recursive:true});fs.writeFileSync('browser-artifacts/external-replay.json',JSON.stringify(reports,null,2));}
  if(failures.length)throw failures[0];
 }
-module.exports={run,labels,replayFixtures,requireAcquisition,stopReplay};main(module,run);
+module.exports={run,labels,replayFixtures,requireAcquisition,stopReplay,checkClosed};main(module,run);

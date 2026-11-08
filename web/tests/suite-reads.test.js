@@ -11,17 +11,23 @@ import { createRequire } from 'node:module';
 // live_camera's do (harness-reads.test.js): live_motion's, live_noise's,
 // live_recovery's and external_replay's as the functions the suites export,
 // on a stand-in page, with the reads of their finally that were cut short
-// (readsCutShort) and those that failed (readsFailed); then each of the six
-// run as it is, in a process of its own, on a stand-in for Playwright whose
-// page fails the suite's first step in its try, and then answers those
-// reads, fails them or never answers; the four whose finally reads, played
-// through to a pass, which a read cut short or failed there fails, in
-// engines()' finally (harness.cjs) and with no failure screenshot, unless
-// the page threw an uncaught error or crashed, which fails it first;
-// live_recovery's scenes and external_replay's fixtures once one engine has
-// failed that way, or at its first step; and engines that never reach those
-// reads, with no page, a page that never gets ready or a failure's
-// screenshot that fails. Loading watch.cjs or a suite needs no Playwright.
+// (readsCutShort) and those that failed (readsFailed), and external_replay's
+// checks of what its stop says it left (checkClosed()), after a failed step
+// and a passed one; then each of the six run as it is, in a process of its
+// own, on a stand-in for Playwright whose page fails the suite's first step
+// in its try, and then answers those reads, fails them or never answers;
+// external_replay with its stop saying that it left the replay running, a
+// source retained or scratch pixels, after steps that fail, whose own
+// failure each engine keeps, after engines whose steps passed as well, or
+// pass, and saying nothing after steps that failed before begin() set
+// window.externalReplay; the four whose finally reads, played through to a
+// pass, which a read cut short or failed there fails, in engines()' finally
+// (harness.cjs) and with no failure screenshot, unless the page threw an
+// uncaught error or crashed, which fails it first; live_recovery's scenes and
+// external_replay's fixtures once one engine has failed that way, or at its
+// first step; and engines that never reach those reads, with no page, a page
+// that never gets ready or a failure's screenshot that fails. Loading
+// watch.cjs or a suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 const motion = require('../../scripts/live_motion_regressions.cjs');
@@ -210,7 +216,20 @@ for (const [suite, { finalAndStop }, holder] of [['live_noise', noise, 'report']
     });
   });
 
-describe('external_replay\'s stop of its replay after a pass or a failure', () => {
+// What external_replay's checks of what its stop says it left say when they
+// fail, by the field each checks and the value the stop gave it, and how its
+// report names them in stepCleanupErrors, `left` holding the fields that fail,
+// in the order checked.
+const LEFT = {
+  active: (value) => `the stop must leave the replay inactive (active: ${value})`,
+  retainedSources: (value) => `the stop must leave no retained sources (retainedSources: ${value})`,
+  scratchPixels: (value) => `the stop must leave no scratch pixels (scratchPixels: ${value})`,
+};
+const NAMED = (left) => Object.entries(left).map(([field, value]) => `closed: ${LEFT[field](value)}`);
+// What a stop says it left that fails one check, or all three.
+const LEFTOVERS = [{ active: true }, { retainedSources: 1 }, { scratchPixels: 4096 }, { active: true, retainedSources: 2, scratchPixels: 307200 }];
+
+describe('external_replay\'s stop of its replay, and its checks of what the stop says it left, after a pass or a failure', () => {
   test('a stop that answers: the report keeps what it says it left, exactly, and nothing is cut short or failed', async () => {
     const r = { browser: 'chromium' };
     await replay.stopReplay(standInPage({ closed: 'answer' }), r);
@@ -230,6 +249,55 @@ describe('external_replay\'s stop of its replay after a pass or a failure', () =
     const r = {};
     assert.equal(await settledAt(t, replay.stopReplay(standInPage({ closed: 'never' }), r)), READ_LIMIT);
     assert.deepEqual(r, { closed: null, readsCutShort: CUT_SHORT('closed'), readsFailed: [] });
+  });
+
+  // checkClosed(), which the finally calls once the stop has settled: false
+  // after a step's own failure, true after steps that passed.
+  test('after a step\'s own failure, each check of what the stop left that fails is named in stepCleanupErrors, with its own text, and nothing is thrown', () => {
+    for (const left of LEFTOVERS) {
+      const closed = { ...ANSWERS.closed, ...left }, r = { browser: 'chromium', closed };
+      assert.doesNotThrow(() => replay.checkClosed(r, false), JSON.stringify(left));
+      assert.deepEqual(r, { browser: 'chromium', closed, stepCleanupErrors: NAMED(left) }, JSON.stringify(left));
+    }
+  });
+
+  test('after steps that passed, each check that fails is named as after a failure, and the first is thrown, an assertion with its own text', () => {
+    for (const left of LEFTOVERS) {
+      const closed = { ...ANSWERS.closed, ...left }, r = { closed }, [first] = Object.keys(left);
+      assert.throws(() => replay.checkClosed(r, true), { name: 'AssertionError', code: 'ERR_ASSERTION', message: LEFT[first](left[first]) },
+        JSON.stringify(left));
+      assert.deepEqual(r, { closed, stepCleanupErrors: NAMED(left) }, JSON.stringify(left));
+    }
+  });
+
+  // Compared as assert.equal() compared them: 0 is not false, "0" not 0 and
+  // null not 0, and a string is shown in quotes.
+  test('a stop that answers with none of the three, or with values of another kind: each check fails, saying what the stop gave, after a failure or a pass', () => {
+    for (const stepsPassed of [false, true])
+      for (const [closed, left] of [[{ view: 'live' }, { active: undefined, retainedSources: undefined, scratchPixels: undefined }],
+        [{ active: 0, retainedSources: '0', scratchPixels: null }, { active: 0, retainedSources: '"0"', scratchPixels: null }]]) {
+        const r = { closed }, check = () => replay.checkClosed(r, stepsPassed);
+        if (stepsPassed) assert.throws(check, { message: LEFT.active(left.active) });
+        else assert.doesNotThrow(check);
+        assert.deepEqual(r.stepCleanupErrors, NAMED(left), JSON.stringify(closed));
+      }
+  });
+
+  // A stop that answers nothing (undefined), as the page's does when a step
+  // failed before begin() set window.externalReplay, leaves nothing to check.
+  test('a clean, inactive replay, a stop that gave no answer (null) and one that answered nothing (undefined) name nothing and throw nothing, after a failure or a pass', () => {
+    for (const stepsPassed of [false, true])
+      for (const closed of [ANSWERS.closed, null, undefined]) {
+        const r = { closed };
+        assert.doesNotThrow(() => replay.checkClosed(r, stepsPassed), `${closed && 'clean'}, ${stepsPassed}`);
+        assert.deepEqual(r, { closed }, 'no list made for nothing');
+      }
+  });
+
+  test('the list keeps what is in it already', () => {
+    const r = { closed: { ...ANSWERS.closed, scratchPixels: 1 }, stepCleanupErrors: ['camera: earlier'] };
+    assert.doesNotThrow(() => replay.checkClosed(r, false));
+    assert.deepEqual(r.stepCleanupErrors, ['camera: earlier', ...NAMED({ scratchPixels: 1 })]);
   });
 });
 
@@ -320,12 +388,13 @@ const READ_ERROR = 'stand-in: the read failed';
 // throws an uncaught error ("pageerror") or crashes ("crash") as the first
 // of those reads is asked, which watch() hears, since the browser and its
 // context tell it of the context and the page as they open, as Playwright's
-// do. Each launch keeps the process alive until its browser closes, as a
-// live browser's pipes do.
+// do; and PLAYED_OVER replaces some answers of PLAYED, by source. Each launch
+// keeps the process alive until its browser closes, as a live browser's
+// pipes do.
 const PLAYWRIGHT = `const fs = require("node:fs");
-const { PLAN, PLAY, BROWSER_HANGS, REFUSE, UNREADY, SHOT_FAILS, EVENT } = process.env, plans = JSON.parse(PLAN);
+const { PLAN, PLAY, BROWSER_HANGS, REFUSE, UNREADY, SHOT_FAILS, EVENT, PLAYED_OVER } = process.env, plans = JSON.parse(PLAN);
 const NAMES = ${JSON.stringify(NAMES)}, ANSWERS = ${JSON.stringify(ANSWERS)};
-const PLAYED = ${JSON.stringify(PLAYED)}, WAITED = ${JSON.stringify(WAITED)};
+const PLAYED = { ...${JSON.stringify(PLAYED)}, ...JSON.parse(PLAYED_OVER || "{}") }, WAITED = ${JSON.stringify(WAITED)};
 // The listeners on() adds, by event, and emit(), which calls them.
 const events = () => {
   const listeners = {};
@@ -447,7 +516,7 @@ async function ran(t, suite, env) {
   const flags = Object.fromEntries(['PLAY', 'BROWSER_HANGS', 'REFUSE', 'UNREADY', 'SHOT_FAILS'].map((flag) => [flag, env[flag] ? '1' : '']));
   const ended = await finish(['-r', inTree('preload.cjs'), inTree(script)], { cwd: directory,
     env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', PLAN: JSON.stringify(env.PLAN),
-      EVENT: env.EVENT ?? '', ...flags } });
+      EVENT: env.EVENT ?? '', PLAYED_OVER: JSON.stringify(env.PLAYED ?? {}), ...flags } });
   const lines = ended.stdout.trim().split(/\r?\n/), limits = /^limits (.+)$/.exec(lines.at(-1));
   const reports = fs.existsSync(inTree(file)) ? JSON.parse(fs.readFileSync(inTree(file), 'utf8')) : null;
   return { ...ended, lines, limits: limits && JSON.parse(limits[1]), reports };
@@ -598,16 +667,164 @@ describe('the six suites, run as they are, read their page after their failure a
     test(`${suite} ends by itself with its reports and their reads when no read answers and the browser will not close`,
       (t) => check(t, suite, { PLAN: { '*': 'never' }, BROWSER_HANGS: true }));
   }
+});
 
-  test('external_replay still checks what a stop that answers says it left: a replay left running fails its engine, as it always has', async (t) => {
-    const { code, killed, stderr, reports } = await ran(t, 'external_replay',
-      { PLAN: { closed: { answer: { active: true, retainedSources: 0, scratchPixels: 0 } } } });
-    assert.equal(killed, false, `it ended by itself: ${stderr}`);
+// external_replay run as it is, each fixture's stop answering that it left
+// `left`, beside a clean, inactive replay, once its steps have failed at
+// their first call ("no site here") or, with PLAY, passed: how it ended, each
+// engine's report and what each browser was asked. The run must end by
+// itself with its reports written.
+async function replayed(t, left, PLAY = false) {
+  const closed = { ...ANSWERS.closed, ...left };
+  const { code, killed, stdout, stderr, lines, limits, reports } = await ran(t, 'external_replay', { PLAN: { closed: { answer: closed } }, PLAY });
+  assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+  assert.ok(reports, `its reports written: ${stdout}`);
+  return { code, stdout, stderr, limits, reports, closed, said: { chromium: said(lines, 'chromium'), webkit: said(lines, 'webkit') } };
+}
+// What each browser of external_replay's is asked in each of its three
+// fixtures when every engine fails: the stop, then the failure's screenshot,
+// then its close.
+const FAILED_FIXTURES = Array.from({ length: 3 }, () => ['is asked for closed', 'takes a screenshot', 'closes its browser']).flat();
+// The last line on which main() printed a failure starting `start`: what the
+// run ended with.
+const endedWith = (stderr, start) => [...stderr.matchAll(new RegExp(`^${start}.*$`, 'gm'))].at(-1)?.[0];
+
+// What external_replay's finally does with what its stop says it left
+// (checkClosed()), run as it is: after a step's own failure each engine of
+// each fixture fails with that step's error, printed as any engine's failure
+// is and the one the run ends with, whatever the stop said, and its report
+// keeps what the stop said and names each check that failed in
+// stepCleanupErrors, which nothing prints; after steps that passed the first
+// check that failed fails the engine with its own error, through engines()'
+// catch, which asks for the failure's screenshot, as it always did, the
+// report naming the checks as after a failure. A stop that answers nothing
+// is not checked. In every row each engine asks for the stop once, with one
+// READ_LIMIT, before the failure's screenshot, when it failed, and the close.
+describe('external_replay\'s checks of what its stop says it left, run as it is', { concurrency: true }, () => {
+  for (const left of LEFTOVERS)
+    test(`after a step's own failure every engine fails with that, its report naming each check that failed, when the stop says it left ${JSON.stringify(left)}`, async (t) => {
+      const { code, stderr, limits, reports, closed, said: asked } = await replayed(t, left);
+      const engines = enginesOf(3);
+      assert.equal(code, 1, stderr);
+      assert.deepEqual(reports.map((report) => [report.browser, report.status, report.closed, report.readsCutShort, report.readsFailed]),
+        engines.map((name) => [name, 'failed', closed, [], []]), 'every engine failed, with what the stop said kept');
+      assert.deepEqual(reports.map((report) => headOf(report.failure)), engines.map(() => 'Error: no site here'), 'the step\'s own failure');
+      assert.deepEqual(reports.map((report) => report.stepCleanupErrors), engines.map(() => NAMED(left)), 'each check that failed named');
+      assert.deepEqual(asked, { chromium: FAILED_FIXTURES, webkit: FAILED_FIXTURES });
+      assert.deepEqual(limits, { [READ_LIMIT]: 6, [CLOSE_LIMIT]: 6 });
+      for (const name of ['chromium', 'webkit'])
+        assert.ok(stderr.includes(`${name} Error: no site here`), `${name}'s failure printed: ${stderr}`);
+      assert.equal(endedWith(stderr, 'Error: '), 'Error: no site here', `what the run ended with: ${stderr}`);
+      assert.doesNotMatch(stderr, /AssertionError|the stop must leave/, 'nothing printed of the checks');
+    });
+
+  test('after a step\'s own failure and a stop that says it left a clean, inactive replay, every engine fails with that and nothing is named', async (t) => {
+    const { code, stderr, reports, said: asked } = await replayed(t, {});
     assert.equal(code, 1, stderr);
-    for (const report of reports) {
-      assert.deepEqual([report.closed, report.readsCutShort, report.readsFailed], [{ active: true, retainedSources: 0, scratchPixels: 0 }, [], []]);
-      assert.match(report.failure, /^AssertionError \[ERR_ASSERTION\]: Expected values to be strictly equal:\n\ntrue !== false/);
-    }
+    assert.deepEqual(reports.map((report) => [report.browser, report.status, headOf(report.failure), report.closed, fieldsOf(report, ['stepCleanupErrors'])]),
+      enginesOf(3).map((name) => [name, 'failed', 'Error: no site here', ANSWERS.closed, []]));
+    assert.deepEqual(asked, { chromium: FAILED_FIXTURES, webkit: FAILED_FIXTURES });
+    assert.equal(endedWith(stderr, 'Error: '), 'Error: no site here', stderr);
+  });
+
+  // A step can fail before begin() has set `window.externalReplay`, as on
+  // image data that will not decode: the stop then answers nothing ({}, an
+  // answer of undefined), so that the report has no `closed`, as it never
+  // had, and there is nothing to check.
+  test('after a step\'s own failure before begin() set window.externalReplay, with a stop that answers nothing, every engine fails with that, nothing checked or named', async (t) => {
+    const { code, killed, stdout, stderr, lines, reports } = await ran(t, 'external_replay', { PLAN: { closed: {} } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.deepEqual(reports.map((report) => [report.browser, report.status, headOf(report.failure), fieldsOf(report, ['closed', 'stepCleanupErrors']),
+      report.readsCutShort, report.readsFailed]), enginesOf(3).map((name) => [name, 'failed', 'Error: no site here', [], [], []]));
+    assert.deepEqual([said(lines, 'chromium'), said(lines, 'webkit')], [FAILED_FIXTURES, FAILED_FIXTURES], stdout);
+    assert.equal(endedWith(stderr, 'Error: '), 'Error: no site here', `what the run ended with: ${stderr}`);
+    assert.doesNotMatch(stderr, /TypeError|AssertionError|the stop must leave/, 'nothing printed of the checks');
+  });
+
+  test('after steps that passed, a stop that says the replay still runs fails every engine with that check\'s own error, asking for the failure\'s screenshot, as it always did', async (t) => {
+    const left = { active: true }, failure = `AssertionError [ERR_ASSERTION]: ${LEFT.active(true)}`;
+    const { code, stderr, limits, reports, closed, said: asked } = await replayed(t, left, true);
+    const engines = enginesOf(3);
+    // As it always was: every engine failed, after its screenshot was asked
+    // for, with what the stop said kept and no read cut short or failed.
+    assert.equal(code, 1, stderr);
+    assert.deepEqual(reports.map((report) => [report.browser, report.status, report.closed, report.readsCutShort, report.readsFailed]),
+      engines.map((name) => [name, 'failed', closed, [], []]));
+    assert.deepEqual(asked, { chromium: FAILED_FIXTURES, webkit: FAILED_FIXTURES });
+    assert.deepEqual(limits, { [READ_LIMIT]: 6, [CLOSE_LIMIT]: 6 });
+    // New: the check's message says which check failed and what the stop
+    // said, and the report names it as after a failure.
+    assert.deepEqual(reports.map((report) => headOf(report.failure)), engines.map(() => failure), 'the check\'s own error');
+    assert.deepEqual(reports.map((report) => report.stepCleanupErrors), engines.map(() => NAMED(left)), 'the check named');
+    for (const name of ['chromium', 'webkit'])
+      assert.ok(stderr.includes(`${name} ${failure}`), `${name}'s failure printed: ${stderr}`);
+    assert.equal(endedWith(stderr, 'AssertionError '), failure, `what the run ended with: ${stderr}`);
+  });
+
+  // With every reading empty, the last step, the check that a required
+  // photograph was read, fails in the two fixtures that require one, after
+  // all the others passed, while the third's steps pass.
+  test('after its last step fails, a required photograph unread, each engine keeps that error too, while the fixture that requires none passes its steps and fails on the check', async (t) => {
+    const left = { active: true }, failure = `AssertionError [ERR_ASSERTION]: ${LEFT.active(true)}`;
+    const { code, killed, stdout, stderr, reports } = await ran(t, 'external_replay', { PLAN: { closed: { answer: { ...ANSWERS.closed, ...left } } },
+      PLAY: true, PLAYED: { '()=>externalReplay.report()': { reads: [] } } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    const unread = (browser, name) => `AssertionError [ERR_ASSERTION]: ${browser}: ${name}: required photograph had no completed reading within 25 seconds`;
+    assert.deepEqual(reports.map((report) => [report.browser, report.source.name, report.outcome, report.acquisitionRequired, headOf(report.failure),
+      report.stepCleanupErrors]), JSON.parse(FIXTURES).fixtures.flatMap(({ name }) => ['chromium', 'webkit'].map((browser) => [browser, name,
+      'no-completed-reading', name !== 'images/another.webp', name === 'images/another.webp' ? failure : unread(browser, name), NAMED(left)])));
+    assert.equal(endedWith(stderr, 'AssertionError '), unread('chromium', JSON.parse(FIXTURES).fixtures[0].name), `what the run ended with: ${stderr}`);
+  });
+
+  test('after one engine\'s own failure, with a stop that says the replay still runs, the other engine and the next fixtures run and pass, and the run ends with that failure', async (t) => {
+    const first = { plan: { closed: { answer: { ...ANSWERS.closed, active: true } } }, play: false };
+    const { code, killed, stdout, stderr, lines, reports } = await ran(t, 'external_replay',
+      { PLAN: [first, ...Array.from({ length: 5 }, () => ({ plan: { '*': 'answer' }, play: true }))] });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.deepEqual(reports.map((report) => [report.browser, report.status, report.closed]),
+      enginesOf(3).map((name, n) => [name, n ? 'passed' : 'failed', n ? ANSWERS.closed : first.plan.closed.answer]), 'the others passed');
+    assert.deepEqual(reports.map((report) => [headOf(report.failure), report.stepCleanupErrors]),
+      [['Error: no site here', NAMED({ active: true })], ...Array.from({ length: 5 }, () => [undefined, undefined])], 'the first kept its own failure');
+    assert.deepEqual([said(lines, 'chromium'), said(lines, 'webkit')], [['is asked for closed', 'takes a screenshot', 'closes its browser',
+      ...Array.from({ length: 2 }, () => ['is asked for closed', 'closes its browser']).flat()],
+    Array.from({ length: 3 }, () => ['is asked for closed', 'closes its browser']).flat()], stdout);
+    assert.equal(endedWith(stderr, 'Error: '), 'Error: no site here', `what the run ended with: ${stderr}`);
+  });
+
+  // Each engine has its own word on whether its steps passed: one whose steps
+  // fail after engines whose steps passed, in its own fixture and in one
+  // before it, keeps its own failure too.
+  test('an engine whose steps fail after engines whose steps passed, with a stop that says the replay still runs, keeps its own failure and names the check', async (t) => {
+    const passes = { plan: { '*': 'answer' }, play: true }, fails = { plan: { closed: { answer: { ...ANSWERS.closed, active: true } } }, play: false };
+    const plans = [passes, fails, passes, fails, passes, passes];
+    const { code, killed, stdout, stderr, reports } = await ran(t, 'external_replay', { PLAN: plans });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.deepEqual(reports.map((report) => [report.browser, report.status, headOf(report.failure), report.stepCleanupErrors]),
+      plans.map(({ play }, n) => [enginesOf(3)[n], ...(play ? ['passed', undefined, undefined] : ['failed', 'Error: no site here', NAMED({ active: true })])]));
+    assert.equal(endedWith(stderr, 'Error: '), 'Error: no site here', `what the run ended with: ${stderr}`);
+    assert.doesNotMatch(stderr, /AssertionError|the stop must leave/, 'nothing printed of the checks');
+  });
+
+  // So does one whose steps fail after the same browser passed its steps in
+  // an earlier fixture, or after an engine that passed its steps and then
+  // failed on the check: that failure, the first, is what the run ends with.
+  test('an engine whose steps fail after the same browser passed its steps in an earlier fixture, or after an engine that passed its steps and failed on the check, keeps its own failure and names the check', async (t) => {
+    const dirty = { closed: { answer: { ...ANSWERS.closed, active: true } } }, clean = { '*': 'answer' };
+    const plans = [[dirty, true], [dirty, false], [clean, true], [clean, true], [dirty, false], [clean, true]].map(([plan, play]) => ({ plan, play }));
+    const failure = `AssertionError [ERR_ASSERTION]: ${LEFT.active(true)}`;
+    const { code, killed, stdout, stderr, reports } = await ran(t, 'external_replay', { PLAN: plans });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.deepEqual(reports.map((report) => [report.browser, report.status, headOf(report.failure), report.stepCleanupErrors]),
+      plans.map(({ plan, play }, n) => [enginesOf(3)[n], ...(plan === clean ? ['passed', undefined, undefined]
+        : ['failed', play ? failure : 'Error: no site here', NAMED({ active: true })])]));
+    assert.equal(endedWith(stderr, 'AssertionError '), failure, `what the run ended with: ${stderr}`);
+    assert.deepEqual(stderr.split(/\r?\n/).filter((line) => /AssertionError|the stop must leave/.test(line)), [`chromium ${failure}`, failure],
+      `nothing printed of the checks but the first engine's failure and the run's end: ${stderr}`);
   });
 });
 
