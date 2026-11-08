@@ -18,16 +18,16 @@ import { createRequire } from 'node:module';
 // in its try, and then answers those reads, fails them or never answers;
 // external_replay with its stop saying that it left the replay running, a
 // source retained or scratch pixels, after steps that fail, whose own
-// failure each engine keeps, after engines that passed as well, or pass,
-// and saying nothing after steps that failed before the replay began; the
-// four whose finally reads, played through to a pass, which a read cut short
-// or failed there fails, in engines()' finally (harness.cjs) and with no
-// failure screenshot, unless the page threw an uncaught error or crashed,
-// which fails it first; live_recovery's scenes and external_replay's
-// fixtures once one engine has failed that way, or at its first step; and
-// engines that never reach those reads, with no page, a page that never gets
-// ready or a failure's screenshot that fails. Loading watch.cjs or a suite
-// needs no Playwright.
+// failure each engine keeps, after engines whose steps passed as well, or
+// pass, and saying nothing after steps that failed before begin() set
+// window.externalReplay; the four whose finally reads, played through to a
+// pass, which a read cut short or failed there fails, in engines()' finally
+// (harness.cjs) and with no failure screenshot, unless the page threw an
+// uncaught error or crashed, which fails it first; live_recovery's scenes and
+// external_replay's fixtures once one engine has failed that way, or at its
+// first step; and engines that never reach those reads, with no page, a page
+// that never gets ready or a failure's screenshot that fails. Loading
+// watch.cjs or a suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 const motion = require('../../scripts/live_motion_regressions.cjs');
@@ -284,7 +284,7 @@ describe('external_replay\'s stop of its replay, and its checks of what the stop
   });
 
   // A stop that answers nothing (undefined), as the page's does when a step
-  // failed before the replay began, leaves nothing to check either.
+  // failed before begin() set window.externalReplay, leaves nothing to check.
   test('a clean, inactive replay, a stop that gave no answer (null) and one that answered nothing (undefined) name nothing and throw nothing, after a failure or a pass', () => {
     for (const stepsPassed of [false, true])
       for (const closed of [ANSWERS.closed, null, undefined]) {
@@ -727,11 +727,11 @@ describe('external_replay\'s checks of what its stop says it left, run as it is'
     assert.equal(endedWith(stderr, 'Error: '), 'Error: no site here', stderr);
   });
 
-  // A step can fail before the page has a replay to stop, as on image data
-  // that will not decode: the stop then answers nothing ({}, an answer of
-  // undefined), so that the report has no `closed`, as it never had, and
-  // there is nothing to check.
-  test('after a step\'s own failure before the replay began, with a stop that answers nothing, every engine fails with that, nothing checked or named', async (t) => {
+  // A step can fail before begin() has set `window.externalReplay`, as on
+  // image data that will not decode: the stop then answers nothing ({}, an
+  // answer of undefined), so that the report has no `closed`, as it never
+  // had, and there is nothing to check.
+  test('after a step\'s own failure before begin() set window.externalReplay, with a stop that answers nothing, every engine fails with that, nothing checked or named', async (t) => {
     const { code, killed, stdout, stderr, lines, reports } = await ran(t, 'external_replay', { PLAN: { closed: {} } });
     assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
     assert.equal(code, 1, stderr);

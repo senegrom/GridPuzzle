@@ -1035,7 +1035,7 @@ each engine. The rows are reads that all answer, all fail or none answer, the
 last also with a browser that will not close, and in each suite with two reads
 one that answers or fails while the other never does; the rows that check what
 `external_replay`'s stop says it left are described with the account of its
-checks (below). The four suites
+checks, which follows that of reads after a pass (below). The four suites
 whose `finally` reads also play their steps through to a pass, with nothing
 read in a `catch` (below). Last come engines that never reach the reads, whose
 reports have none of their fields and neither list: one whose `newPage()`
@@ -1270,11 +1270,17 @@ as it is, since `assert.equal()`, in the Node 22 and 24 here, adds its own diff
 to a message it is given. Nothing else changes: the stop comes before the
 checks and has `READ_LIMIT`; a stop cut short or failed leaves `closed` null,
 nothing to check and its name in `readsCutShort` or `readsFailed`, which fails
-an engine that passed in `engines()` (above); a stop that answers nothing, as
-the page's does when a step failed before the replay began, leaves no `closed`
-in the report and nothing to check; the report's other fields are as they were;
-and the other engine and the next fixtures run as after any failure, the run
-ending with the first failure. Measured on Windows, in both engines, with a
+an engine that passed in `engines()` (above); a stop that answers nothing
+leaves no `closed` in the report and nothing to check; the report's other
+fields are as they were; and the other engine and the next fixtures run as
+after any failure, the run ending with the first failure. What the page's stop
+does after a failed step depends on where the step failed: before `begin()` set
+`window.externalReplay` (on image data that will not decode, say), the stop
+answers nothing; after that, but before `begin()` made the stop, as in WebKit
+on Windows, whose canvas has no `captureStream()`, the stop itself fails, so
+that `closed` is null and `readsFailed` names it; and once `begin()` has made
+the stop, it says what the replay left, which is checked, even when the replay
+never started. Measured on Windows, in both engines, with a
 preload making the first fixture's Chromium fail in the page at its step that
 reads `externalReplay.error`, with `sabotage.cjs: the step failed`, and making
 its stop, which still stopped the replay, answer `active: true`, one run of
@@ -1309,19 +1315,19 @@ stop said it and naming each check that failed, with nothing printed of the
 checks, the stop asked once, with one `READ_LIMIT`, before the failure's
 screenshot and the close; with a clean, inactive replay after steps that fail
 nothing is named; with a stop that answers nothing after steps that fail, as
-when the replay never began, every engine keeps the step's own error, its
-report with no `closed` and nothing named; after steps that pass with the stop
-saying the replay still runs, every engine fails with that check's own error,
-printed and what the run ends with, asking for its screenshot, and names it;
-with every reading empty, so that the last step, the check that a required
-photograph was read, fails in the two fixtures that require one, their engines
-keep that error and name the check, while the third's steps pass and its
-engines fail on the check; with only the first fixture's Chromium failing at
-its first step so, the other engine and the next fixtures pass and the run ends
-with that step's error; and with WebKit failing so in the first two fixtures,
-after Chromium passed in each, each of those engines keeps its own error and
-names the check, since each engine has its own word on whether its steps
-passed.
+when a step fails before the page has `window.externalReplay`, every engine
+keeps the step's own error, its report with no `closed` and nothing named;
+after steps that pass with the stop saying the replay still runs, every engine
+fails with that check's own error, printed and what the run ends with, asking
+for its screenshot, and names it; with every reading empty, so that the last
+step, the check that a required photograph was read, fails in the two fixtures
+that require one, their engines keep that error and name the check, while the
+third's steps pass and its engines fail on the check; with only the first
+fixture's Chromium failing at its first step so, the other engine and the next
+fixtures pass and the run ends with that step's error; and with WebKit failing
+so in the first two fixtures, after Chromium passed in each, each of those
+engines keeps its own error and names the check, since each engine has its own
+word on whether its steps passed.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
