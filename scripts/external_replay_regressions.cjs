@@ -103,7 +103,9 @@ async function stopReplay(page,r){
 // would add its own diff), which fails the engine through engines()' catch,
 // with the failure's screenshot, as it always did; after a step's own failure
 // nothing is thrown, so that the engine fails with the step's own error. With
-// `closed` null there is nothing to check.
+// `closed` null, or undefined from a stop that answered nothing, as the
+// page's does when a step failed before the replay began, there is nothing to
+// check.
 function checkClosed(r,stepsPassed){
  if(!r.closed)return;
  const shown=value=>typeof value==='string'?JSON.stringify(value):String(value);
