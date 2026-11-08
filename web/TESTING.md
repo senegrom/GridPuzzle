@@ -1307,9 +1307,12 @@ failed, with nothing printed of the checks, the stop asked once, with one
 inactive replay after steps that fail nothing is named; after steps that pass
 with the stop saying the replay still runs, every engine fails with that
 check's own error, printed and what the run ends with, asking for its
-screenshot, and names it; and with only the first fixture's Chromium failing
-so, the other engine and the next fixtures pass and the run ends with that
-step's error.
+screenshot, and names it; with every reading empty, so that the last step,
+the check that a required photograph was read, fails in the two fixtures that
+require one, their engines keep that error and name the check, while the
+third's steps pass and its engines fail on the check; and with only the first
+fixture's Chromium failing at its first step so, the other engine and the
+next fixtures pass and the run ends with that step's error.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
