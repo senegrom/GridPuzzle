@@ -78,10 +78,10 @@ function labels(block){
  const digits=flags.flatMap((flag,i)=>i&&flag?[i]:[]);return{value:flags[0]&&digits.length===1?digits[0]:null,ambiguous:!flags[0]&&digits.length>0};}));
 }
 // The replay's stop, after a pass or a failure, and what it says it left
-// (`closed`, which checkClosed() then checks), or null when the stop fails,
-// and then nothing is checked. It has READ_LIMIT (watch.cjs), so that a page
-// that will not answer, as in the WebKit hang (web/TESTING.md), cannot hold
-// the run here: a stop still waiting then leaves null too, and `readsCutShort`
+// (`closed`, which checkClosed() checks), or null when the stop fails, and
+// then nothing is checked. It has READ_LIMIT (watch.cjs), so that a page that
+// will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
+// run here: a stop still waiting then leaves null too, and `readsCutShort`
 // names it, as `readsFailed` names, with its error, a stop that failed. After
 // a pass either fails the engine, in engines() (harness.cjs), as a browser
 // that would not close does, so that no engine passes with what its stop left
