@@ -26,7 +26,8 @@ Python's `http.server` for the built site on a port the system picks (under
 `/GridPuzzle/` through the `_preview` link when a suite needs the Pages path),
 `engines()` runs the suite in Chromium and WebKit on a fresh phone-sized
 context with the service worker blocked, collects the uncaught errors of every
-page the suite opens, screenshots a failing engine and writes one report per
+page the suite opens, asks for a screenshot of an engine whose suite fails or
+whose pages throw or end, and writes one report per
 engine under `browser-artifacts/`, `temporaryDirectory()` makes a folder of a
 suite's own under the system temp, and `baselineSite()` builds in one the
 two-root directory the paired suites use to compare the scanner with a pinned
@@ -60,7 +61,7 @@ the error the run ends with, one line before Playwright's message:
 gives a crash no reason, and the call a crash interrupts fails with `Target
 crashed` in Chromium, but in WebKit with the `Target page, context or browser
 has been closed` of a lost browser's calls: all that `live_noise`'s WebKit
-failure in run 39571397193 said. A lost browser's interrupted call fails
+failure in run 39571397193 said. A lost browser's interrupted call can fail
 before Playwright reports the closes behind it, so a failure that says its
 target is gone (`Target page, context or browser has been closed`, `Target
 crashed` or `Page crashed`) waits for that news, until the browser has
@@ -126,7 +127,10 @@ tab did not close when asked. It says nothing against what the suite checked
 before that, but a run that leaves a browser behind has not passed: an engine
 that passed fails, with the cleanup failure in `failure`, and an engine that
 failed keeps its own failure first. Every engine still runs, and its report is
-still written. In `harness_regressions`, whose `attempt()` keeps what is
+still written. Just before that close, `engines()` also fails an engine that
+passed whose suite's `finally` cut reads of its page short or saw them fail,
+with no screenshot either (see the reads after a pass, below); that failure
+then comes first. In `harness_regressions`, whose `attempt()` keeps what is
 printed through `console.error` during a case for that case's own checks, the
 line, the browser close's or the "carried-on" case's context's, stays there
 and does not reach stderr; the case then fails, and stderr shows its failure,
@@ -682,12 +686,23 @@ seven reads in `readsCutShort`. With nothing sabotaged, in one run at master at
 all 19 checks, and failed in WebKit at its first step, as it does on Windows
 (above): WebKit's report had the same seven values in both, and here an empty
 `readsCutShort`.
+`readWithin()` also names, in a list of its own, each read that failed before
+the limit, rejecting or throwing as it was asked, as `<name>: <its error>` (the
+error's message, or the error itself as a string when it has no message), the
+form of `cleanupErrors`, in the order asked; a read that fails after the limit
+was cut short, and is never named so. `live_camera`'s `catch` keeps no such
+list, since its engine has failed already and a failed read's fallback says as
+much as it always did; the four suites whose `finally` reads keep one,
+`readsFailed` (below).
 `web/tests/harness-reads.test.js` tests `readWithin()` on its own: answers kept
 as they came, `undefined` and `null` included, in the order asked; failures
-that keep their fallbacks and are not cut short; reads that never answer, which
-end together at the limit, each named; one that waits, which holds up no other;
-an answer just before the limit, which counts, and one after it, which changes
-nothing, nor does a late failure; no timer left behind; a limit that starts
+that keep their fallbacks, are named with their errors, in the order asked and
+not the order they failed in, by the error itself when it has no message, and
+are not cut short; reads that never answer, which end together at the limit,
+each named; one that waits, which holds up no other; an answer or a failure
+just before the limit, which counts, and one after it, which changes nothing,
+a failure after it being cut short and never named as failed; no timer left
+behind; a limit that starts
 before any read is asked, so that a read that sets a timer as long as the limit
 as it is asked is still waiting when the wait ends; and a limit whose timer
 keeps a process with nothing else alive running until the wait ends. It also
@@ -908,8 +923,13 @@ have one each. A read that has neither answered nor failed by then keeps the
 fallback that a read that fails keeps there, `null` for a value
 (`browser_smoke`'s reads have none, so that its report then has no such field)
 and nothing for a stop, and `readsCutShort` names it, in the engine's report
-or, in `live_recovery`, in the scene's record (`cases`); the list is empty when
-nothing was cut short. A report has the list only once its suite has reached
+and, in `live_recovery`, in the scene's record (`cases`) as well, which had it
+alone until the rule for reads after a pass moved into `engines()` (below); the
+list is empty when nothing was cut short. The four whose `finally` reads also
+keep beside it `readsFailed`, which names each read of that `finally` that
+failed, with its error, as `readWithin()` names it, and is empty when none did;
+a read that fails in the `catch` of any of the six is named nowhere, as
+before. A report has the lists only once its suite has reached
 those reads: in `live_noise`, `live_recovery` and `external_replay` once the
 page is ready (`body[data-ready]`), since their `try` starts after that, so
 that a scene of `live_recovery` whose page never gets ready has no record; in
@@ -931,8 +951,8 @@ Playwright's own 30, so there a read that would have answered later than 19.9
 seconds is cut short all the same, as the owner chose; `READ_LIMIT` is the only
 limit those reads have. After a failure a read cut short changes the run's
 outcome no more than one that failed: the engine fails with the suite's own
-failure, and nothing is printed for the read. After a pass, in a `finally`, it
-fails an engine that would otherwise pass (below).
+failure, and nothing is printed for the read. After a pass, in a `finally`,
+either fails an engine that would otherwise pass (below).
 Measured on Windows in Chromium, with each suite's first step in its `try` made
 to fail and its page's main thread then kept busy for good, as for
 `live_camera` above, one run of each as it was and as it is now, on the
@@ -995,12 +1015,16 @@ its own in `solver_update`. It runs the reads that `live_motion`, `live_noise`,
 answers, fails at once or as the call is made, or never answers, with the
 timers mocked: the answers kept as they came and the fallbacks as before; each
 wait ending `READ_LIMIT` after it began, not a millisecond before; the reads
-cut short named, `live_motion`'s stop after its state; and the stop asked only
-once the snapshot has settled, never when it does not, with one limit for both
-even when the snapshot answers late. Then it runs each of the six suites as it
-is, in a process of its own, on a stand-in for Playwright whose page fails the
-suite's first step in its `try`: each engine's report has the suite's own
-failure, the reads' answers or fallbacks and `readsCutShort`; each read is
+cut short named, `live_motion`'s stop after its state; the reads of a
+`finally` that fail named with their errors in `readsFailed`, and
+`live_motion`'s state, read in its `catch`, named nowhere when it fails; and
+the stop asked only once the snapshot has settled, never when it does not, with
+one limit for both even when the snapshot answers late or fails. Then it runs
+each of the six suites as it is, in a process of its own, on a stand-in for
+Playwright whose page fails the suite's first step in its `try`: each engine's
+report has the suite's own failure, the reads' answers or fallbacks,
+`readsCutShort` and, in the four whose `finally` reads, `readsFailed`, which
+`live_recovery`'s report has as its scene's record does; each read is
 asked for once, in the suite's order, before the harness's failure screenshot
 or after `browser_smoke`'s own, and the browser's close comes last; the run
 ends by itself; and its timers of `READ_LIMIT`'s length, which last a tenth of
@@ -1011,7 +1035,7 @@ one that answers or fails while the other never does; and `external_replay`
 still fails an engine whose stop says the replay still runs. The four suites
 whose `finally` reads also play their steps through to a pass, with nothing
 read in a `catch` (below). Last come engines that never reach the reads, whose
-reports have none of their fields and no `readsCutShort`: one whose `newPage()`
+reports have none of their fields and neither list: one whose `newPage()`
 rejects, in `solver_update` and `browser_smoke`, whose next engine still reads
 its page; one in `browser_smoke` whose failure's screenshot fails, which leaves
 the page unread as it always did; and a page that never gets ready, which
@@ -1020,103 +1044,189 @@ the page unread as it always did; and a page that never gets ready, which
 for it inside its `try`, still reads it.
 
 Since November 2026 a read that the `finally` of `live_motion`, `live_noise`,
-`live_recovery` or `external_replay` cuts short after the suite's steps have
-passed fails the engine, as the owner chose, as a browser that would not close
-fails an engine that passed (above); until then the pass stood, with the read's
-fallback and its name in `readsCutShort`. Each of the four checks for such a
-read right after the `try` whose `finally` reads. A failure of the suite's
-steps leaves that `try`, once the `finally` has run, without reaching the
-check, so that the engine's failure stays the suite's own; after a pass the
-suite throws an error that names every read the `finally` cut short, as
-`readsCutShort` spells it, after the engine's name: `chromium: closed: no
-answer within 19.9 s` in `external_replay`, say, or `chromium: final: no answer
-within 19.9 s; stop: no answer within 19.9 s` in `live_noise` or
-`live_recovery` when the snapshot never answers. `engines()` then fails the
-engine as it fails any engine whose suite throws: its report says `failed`,
-with that error's stack in `failure`, and keeps the reads' fallbacks and
-`readsCutShort` as before; the error is printed after the engine's name and the
-failure's screenshot is taken; the browser closes, the report is written and
-the next engine runs; and once every engine has run, the first failure is
-thrown again, so that the run ends with exit code 1. As with a close, only an
-engine that `engines()` would pass fails so: when its pages threw an uncaught
-error, or a page or the browser was lost, the suite throws nothing, and
-`engines()` fails the engine as it always has, with `uncaught page errors`,
-printed with the page's error, or, after what ended, `a page crashed or closed,
-or the browser disconnected`, while `readsCutShort` still names the reads. The
-suite looks at `errors` and `ended` just before `engines()` does, with nothing
-run in between that could add to them. `live_recovery` runs each of its two
-scenes, and `external_replay` each of its three fixtures, in an `engines()`
-call of its own, one after the other, and such an engine fails its scene or
-fixture as a failing step does: the other engine and the next scenes or
-fixtures still run, every engine's report reaches `live-recovery.json` or
+`live_recovery` or `external_replay` cuts short, or sees fail, after the
+suite's steps have passed fails the engine, as the owner chose, as a browser
+that would not close fails an engine that passed (above). The rule is
+`engines()`'s. The suite keeps the reads of its `finally` that were cut short
+in `readsCutShort` and those that failed in `readsFailed`, each as
+`readWithin()` names it, in the engine's report, which `live_recovery` gives
+the two lists of its scene's record, there being one scene to each `engines()`
+call; and `engines()` looks at them in its `finally`, just before the browser's
+close. An engine that `engines()` would pass, its suite having returned with no
+uncaught page error and nothing ended, fails when its report names such a read,
+with an error that names every one of them after the engine's name, those cut
+short first and then those that failed, each list in the order the reads were
+asked: `chromium: closed: no answer within 19.9 s` in `external_replay`, say,
+`chromium: final: no answer within 19.9 s; stop: no answer within 19.9 s` in
+`live_noise` or `live_recovery` when the snapshot never answers, or `chromium:
+stop: page.evaluate: Error: …` when `live_motion`'s stop throws, Playwright's
+message then going on with the page's stack. Its report says `failed`, with
+that error's stack in `failure`, and keeps the reads' fallbacks and both lists;
+the error is printed after the engine's name, as any engine's failure is; and
+no failure screenshot is taken, since the steps passed on a page that was there
+for them. The browser then closes, the report is written and the next engine
+runs, and once every engine has run the first failure is thrown again, so that
+the run ends with exit code 1, all as after a close that fails. When the close
+fails as well, the report keeps the reads' failure, which came first, and the
+close's goes in `cleanupErrors` and is printed after it. A read on a browser
+that has gone can fail before Playwright reports what ended (above); the checks
+in the `try` of `engines()` then find nothing yet, and the reads' failure waits
+for that news, for at most a second, as a failure that says its target is gone
+waits in the `catch`, and is led by what ended, with no screenshot; news that
+comes after that second leads nothing. A failure of the suite's steps, an
+uncaught page error, a page lost, or the browser lost when its news comes
+before the reads fail, fails the engine in that `try`, as it always has, asking
+for the failure's screenshot (a page or browser that has gone gives none), and
+the two lists, which still name the reads, add nothing to it; reads in a
+`catch` keep their outcome too, the engine having failed already.
+`live_recovery` runs each
+of its two scenes, and `external_replay` each of its three fixtures, in an
+`engines()` call of its own, one after the other, and such an engine fails its
+scene or fixture as a failing step does: the other engine and the next scenes
+or fixtures still run, every engine's report reaches `live-recovery.json` or
 `external-replay.json`, and the run ends with the first failure.
 `live_recovery`'s record of the scene keeps `ok`, since its checks passed,
-beside the `readsCutShort` that names the reads, and has no `failure` of its
-own, which a failing step gives it. A read that fails after a pass, rather than
-going unanswered, still keeps its fallback and the pass, since the owner's
-choice covers reads cut short only, and `external_replay` checks nothing of a
-stop that failed or was cut short. By design, on a page that no longer answers
-anything, such an engine ends within about 110 seconds of its reads being
-asked: 19.9 for the reads, up to the 60 seconds these four suites give their
-page for the failure's screenshot, and 30 for the browser's close. Measured on
-Windows in Chromium, with a preload making the page's function behind one such
-read return a promise that never settles once the steps had passed, so that the
-read never answered while the page's main thread stayed free, on the process's
-own clock from the moment that read was asked and with the host's load in
-samples taken during the runs: as it was, at 55 to 100% CPU, each such engine
-passed with the reads cut short in `readsCutShort`, and each run ended by
-itself, with exit code 0 but for one that load spoiled: `external_replay` with
-every fixture's stop never answering, each fixture with `closed` null, its
-`exit` event 66.8 s after the first stop was asked (a first run lost its second
+beside the lists that name the reads, and has no `failure` of its own, which a
+failing step gives it. A stop of `external_replay`'s that fails after a pass,
+which leaves `closed` null and so the `finally`'s three checks of what the
+replay left undone, now fails its engine too. The rule came in two steps, both
+in November 2026; before them the pass stood, each read keeping its fallback, a
+read cut short named in `readsCutShort` and one that failed nowhere. First each
+of the four suites checked for reads cut short right after the `try` whose
+`finally` reads, and threw, so that `engines()` failed the engine through its
+`catch`, which asked for the failure's screenshot, while a read that failed
+after a pass kept its fallback and the pass. Then the owner chose that such a
+read fails the engine too, named with its error, and that the rule move into
+`engines()`, beside the close, so that it takes no screenshot. By design, on a
+page that no longer answers anything,
+such an engine now ends within about 50 seconds of its reads being asked: 19.9
+for the reads and 30 for the browser's close. With the rule in the suites the
+failure's screenshot came in between, for up to the 60 seconds these four
+suites give their page, about 110 seconds in all. Measured on Windows in
+Chromium, with a preload making the page's function behind one such read return
+a promise that never settles once the steps had passed, so that the read never
+answered while the page's main thread stayed free, on the process's own clock
+from the moment that read was asked and with the host's load in samples taken
+during the runs: before the rule, at 55 to 100% CPU, each such engine passed
+with the reads cut short in `readsCutShort`, and each run ended by itself, with
+exit code 0 but for one that load spoiled: `external_replay` with every
+fixture's stop never answering, each fixture with `closed` null, its `exit`
+event 66.8 s after the first stop was asked (a first run lost its second
 fixture to a 60-s `body[data-ready]` wait, which is load, and ended with exit
 code 1); `live_noise` with its snapshot never answering, and so its stop too,
 20.1 s after the snapshot was asked; `live_motion` with its stop never
 answering, 19.9 s after it; and `live_recovery` with its first scene's stop
 never answering, the first scene's record naming it, 26.4 and 25.9 s after it
-in two runs. As it is now, at 38 to 100% CPU, each such engine failed with the
-reads' names, its report written as before with nothing in `cleanupErrors`, its
-failure's screenshot taken in 0.05 to 0.72 s, and each run ended by itself with
-exit code 1: `external_replay`'s three fixtures each with `chromium: closed: no
-answer within 19.9 s`, the next fixture's page starting to load 0.3 and 0.5 s
-after the failure's screenshot began, the `exit` event 73.8 s after the first
-stop was asked; `live_noise` with `chromium: final: no answer within 19.9 s;
-stop: no answer within 19.9 s` and `live_motion` with `chromium: stop: no
-answer within 19.9 s`, their `exit` event 20.0 s after the read was asked; and
-`live_recovery`'s first scene with `chromium: stop: no answer within 19.9 s`,
-its record keeping `ok` with no `failure`, while its second scene ran and
-passed, the `exit` event 28.7 s after the stop was asked. In an earlier run of
-the check, at 96 to 100% CPU, `live_recovery`'s first scene failed a step, its
-check that a paused video drops the overlay, before its stop, which was then
-cut short: that engine failed with the step's own failure, and the second scene
-passed. With the page also made to throw an uncaught error just before such a
-read was asked, `live_motion` and each of `external_replay`'s three fixtures
-failed with `chromium: uncaught page errors`, the page's error printed and
-nothing of the reads, which `readsCutShort` named, as it was, at 38 to 98% CPU,
-and as it is now, at 41 to 100% CPU: `live_motion`'s `exit` event 20.3 and 20.0
-s after its stop was asked, and `external_replay`'s 65.8 and 67.1 s after its
-first stop was asked. With nothing sabotaged, in one run each as it was and as
-it is now, at 42 to 100% CPU, each of the four passed in Chromium and failed in
-WebKit at its first step, as on Windows (above), with an empty `readsCutShort`
-in every report or scene's record; `external_replay` as it was passed in
-Chromium in a second run, the first having timed out at `body[data-ready]` on
-its second fixture, as the first run with its stops left unanswered had.
+in two runs. With the rule in the suites, at 38 to 100% CPU, each such engine
+failed with the reads' names, its report written as before with nothing in
+`cleanupErrors`, its failure's screenshot taken in 0.05 to 0.72 s, and each run
+ended by itself with exit code 1: `external_replay`'s three fixtures each with
+`chromium: closed: no answer within 19.9 s`, the next fixture's page starting
+to load 0.3 and 0.5 s after the failure's screenshot began, the `exit` event
+73.8 s after the first stop was asked; `live_noise` with `chromium: final: no
+answer within 19.9 s; stop: no answer within 19.9 s` and `live_motion` with
+`chromium: stop: no answer within 19.9 s`, their `exit` event 20.0 s after the
+read was asked; and `live_recovery`'s first scene with `chromium: stop: no
+answer within 19.9 s`, its record keeping `ok` with no `failure`, while its
+second scene ran and passed, the `exit` event 28.7 s after the stop was asked.
+In an earlier run of that check, at 96 to 100% CPU, `live_recovery`'s first
+scene failed a step, its check that a paused video drops the overlay, before
+its stop, which was then cut short: that engine failed with the step's own
+failure, and the second scene passed. With the page also made to throw an
+uncaught error just before such a read was asked, `live_motion` and each of
+`external_replay`'s three fixtures failed with `chromium: uncaught page
+errors`, the page's error printed and nothing of the reads, which
+`readsCutShort` named, before the rule, at 38 to 98% CPU, and with it in the
+suites, at 41 to 100% CPU: `live_motion`'s `exit` event 20.3 and 20.0 s after
+its stop was asked, and `external_replay`'s 65.8 and 67.1 s after its first
+stop was asked. Measured again the same way, one run each with the rule in the
+suites and with it in `engines()`, `external_replay` with its stops left
+unanswered, at 41 to 100% CPU: with the rule in the suites its first two
+fixtures failed with the names, each failure's screenshot taken 19.9 s after
+the stop was asked and done 0.29 and 0.19 s later, and the browser's close
+began 20.20 and 20.12 s after the stop was asked; with the rule in `engines()`
+all three failed with `chromium: closed: no answer within 19.9 s` and no
+screenshot, the browser's close beginning 19.91 to 19.95 s after the stop was
+asked and the next fixture's page starting to load 20.1 and 21.0 s after it,
+and the run ended by itself with exit code 1, its reports written with `closed`
+null and nothing in `cleanupErrors` or `readsFailed`. (With the rule in the
+suites the third fixture's page timed out at `body[data-ready]`, which is load,
+and with it in `engines()` the third fixture's close took 26.0 s.) With the
+page's main thread kept busy for good from the first fixture's stop on instead,
+so that the page answered nothing more, one run of each: with the rule in the
+suites, at 78 to 100% CPU, that fixture's failure's screenshot began 21.3 s
+after the stop was asked and ran out of the page's 60 s, failing 60.3 s later,
+the browser's close began 81.6 s after the stop was asked, the next fixture's
+page started to load 81.8 s after it and the `exit` event came 90.8 s after it;
+with the rule in `engines()`, at 67 to 100% CPU, there was no screenshot, the
+close began 19.9 s after the stop was asked, the next fixture's page started to
+load 21.0 s after it and the `exit` event came 33.3 s after it. The other two
+fixtures passed in both. With the page's function made to throw instead, so
+that the read failed at once after the steps had passed, one run of each, at 49
+to 100% CPU: `external_replay`'s three fixtures passed with the rule in the
+suites, each with `closed` null and its three checks skipped, the run ending
+with exit code 0 6.1 s after the first stop was asked; with the rule in
+`engines()` each failed with `chromium: closed: page.evaluate: Error:
+stall.cjs: the stop threw`, that read in `readsFailed`, with no screenshot, the
+run ending with exit code 1 6.5 s after it. `live_motion` passed with the rule
+in the suites, its `exit` event 0.07 s after its stop was asked, and with the
+rule in `engines()` failed with `chromium: stop: page.evaluate: Error:
+stall.cjs: the stop threw`, with no screenshot, its `exit` event 0.19 s after
+it. A first pair of runs of each agreed. With nothing sabotaged, in one run
+each before the rule and with it in the suites, at 42 to 100% CPU, each of the
+four passed in Chromium and failed in WebKit at its first step, as on Windows
+(above), with an empty `readsCutShort` in every report or scene's record;
+`external_replay` before the rule passed in Chromium in a second run, the first
+having timed out at `body[data-ready]` on its second fixture, as the first run
+with its stops left unanswered had. With the rule in `engines()`, at 51 to 100%
+CPU, each of the four passed in Chromium, both of `live_recovery`'s scenes and
+all three of `external_replay`'s fixtures, and failed in WebKit at its first
+step, with an empty `readsCutShort`; WebKit's reports then name in
+`readsFailed` the reads their `finally` made after that failure,
+`window.noiseState?.snapshot is not a function` and the like, since the
+fixture's functions were never made, while `live_motion`'s stop,
+`window.motionState?.stop?.()`, does not fail so. Run beside them on the same
+host with the rule in the suites, at 36 to 100% CPU, each passed in Chromium as
+well, `live_motion` and `external_replay` only in later runs, the earlier ones
+having failed a step or lost a fixture to load (`live_motion`'s check that the
+board was read once, at 96 to 100% CPU, the 1-s wait for a paused video to drop
+its overlay, or a 60-s wait for `body[data-ready]` or for a page to load).
 `web/tests/suite-reads.test.js` plays the four suites through to a pass on its
-stand-in for Playwright: reads that answer or fail in their `finally` keep the
-pass, and reads that never answer there fail every engine with their names
-after the engine's, printed on stderr, with the failure's screenshot taken
-after the reads and every report written as before; in `live_noise` and
-`live_recovery` a snapshot that answers or fails beside a stop that never
-answers names the stop alone; and a page that throws an uncaught error, or
-crashes, as the first of those reads is asked fails every engine with `uncaught
-page errors`, printed with the page's error, or, after a line that names the
-crash, `a page crashed or closed, or the browser disconnected`, with nothing
-printed of the reads, which `readsCutShort` names. With a plan for each browser
-it launches, it fails only the Chromium of `live_recovery`'s first scene and of
-`external_replay`'s first fixture, by its first step or by reads cut short
-after its steps passed, while every other engine passes: either way every other
-engine, scene and fixture still runs and passes, every report is written, the
-run ends with that first failure, and `live_recovery`'s record keeps `ok` after
-its checks passed, with no `failure` of its own.
+stand-in for Playwright: reads that answer in their `finally` keep the pass,
+and reads that never answer or fail there fail every engine in `engines()`,
+with their names after the engine's, those cut short first, printed on stderr,
+with no failure screenshot and every report written as before; in `live_noise`
+and `live_recovery` a snapshot that answers or fails beside a stop that never
+answers or fails names each in its list; and a page that throws an uncaught
+error, or crashes, as the first of those reads is asked fails every engine with
+`uncaught page errors`, printed with the page's error, or, after a line that
+names the crash, `a page crashed or closed, or the browser disconnected`,
+asking for its screenshot, with nothing printed of the reads, which
+`readsCutShort` names.
+With a plan for each browser it launches, it fails only the Chromium of
+`live_recovery`'s first scene and of `external_replay`'s first fixture, by its
+first step, by reads cut short or by reads that fail after its steps passed,
+while every other engine passes: each way every other engine, scene and fixture
+still runs and passes, every report is written, the run ends with that first
+failure, only the failing step's engine asks for a screenshot, and
+`live_recovery`'s record keeps `ok` after its checks passed, with no `failure`
+of its own.
+`web/tests/harness-engines.test.js` runs `engines()` itself, through `main()`
+and on a stand-in for Playwright, with a stand-in suite whose steps pass and
+whose report names reads cut short, reads that failed or both: the engine fails
+with them, in that order, printed after its name, with no screenshot taken or
+written; its browser closes, with one `CLOSE_LIMIT` timer for each close; the
+next engine runs and passes with lists that name nothing; the run ends with the
+first engine's failure, also when both fail so; with a close that never settles
+or rejects as well, the report keeps the reads' failure, the close's is in
+`cleanupErrors` and printed after it, and the run still ends; and a read that
+failed as the browser went away fails the engine once the disconnection has
+come, led by it, or, when the disconnection comes 1.5 s later, past the
+harness's second of waiting, with the read's own error alone. With the suite's
+own failure, an uncaught page error, a crash or the browser's disconnection
+before the reads failed as well, the engine fails with that, asking for its
+screenshot, which the stand-in takes, with nothing printed of the reads; those
+rows pass on the harness as it was too.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong

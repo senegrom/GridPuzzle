@@ -177,15 +177,16 @@ async function begin({ font, race = false }) {
 // the snapshot has answered or failed. Both share READ_LIMIT (watch.cjs), so
 // that a page that will not answer, as in the WebKit hang (web/TESTING.md),
 // cannot hold the run here: `final` is null when the snapshot fails or is cut
-// short, a stop that fails changes nothing, and the record's `readsCutShort`
-// names what was cut short, which after a pass fails the engine (run()).
+// short, the record's `readsCutShort` names what was cut short and its
+// `readsFailed`, with its error, what failed. After the scene passed either
+// fails the engine, through the engine's report (run()).
 async function finalAndStop(page, record) {
   let snapshotted; const snapshot = new Promise(resolve => { snapshotted = resolve; });
-  const { values, cutShort } = await readWithin({
+  const { values, cutShort, failed } = await readWithin({
     final: [async () => { try { return await page.evaluate(() => window.recoveryState?.snapshot()); } finally { snapshotted(); } }, null],
     stop: [async () => { await snapshot; return page.evaluate(() => window.recoveryState?.stop()); }, undefined],
   }, READ_LIMIT);
-  record.final = values.final; record.readsCutShort = cutShort;
+  record.final = values.final; record.readsCutShort = cutShort; record.readsFailed = failed;
 }
 async function run() {
   const server = await serve(), reports = [], failures = [];
@@ -195,7 +196,7 @@ async function run() {
     for (const config of [{ font: 'Courier New', race: false }, { font: 'Courier New', race: true }]) {
       const file = `live-recovery-${config.race ? 'race' : 'clear'}.json`;
       try {
-        await engines(file, async (page, report, name) => {
+        await engines(file, async (page, report) => {
           report.cases = [];
           await page.goto(server.base); await page.waitForSelector('body[data-ready="true"]');
           const record = { ...config }; report.cases.push(record);
@@ -280,16 +281,16 @@ async function run() {
             record.failure = error.stack; throw error;
           } finally {
             await finalAndStop(page, record);
+            // The engine's report has the scene's two lists as well, since
+            // engines() (harness.cjs) reads the report, not the scene's
+            // record: there is one scene to each engines() call. After the
+            // scene passed, a read cut short or failed then fails the engine
+            // there, as a browser that would not close fails one that passed,
+            // and the record keeps `ok`, since its checks passed, with no
+            // `failure` of its own. The next engine and scene run as after any
+            // failure.
+            report.readsCutShort = record.readsCutShort; report.readsFailed = record.readsFailed;
           }
-          // Reached only after the scene passed, so that a failure stays the
-          // engine's own: a read cut short then fails the engine with the
-          // names, as a browser that would not close fails one that passed
-          // (web/TESTING.md), and the record keeps `ok`, since its checks
-          // passed, with no `failure` of its own. And as with such a close, an
-          // uncaught page error or a page or browser lost fails the engine
-          // instead, through engines()' own checks once this returns. The next
-          // engine and scene run as after any failure.
-          if (record.readsCutShort.length && !report.errors.length && !report.ended.length) throw Error(`${name}: ${record.readsCutShort.join('; ')}`);
         }, { timeout: 60000 });
       } catch (error) { failures.push(error); }
       finally {

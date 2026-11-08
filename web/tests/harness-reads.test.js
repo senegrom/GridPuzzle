@@ -8,7 +8,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 // A suite's reads of its page after a failure, for its report, which share
-// watch.cjs's READ_LIMIT through readWithin(): the helper on its own,
+// watch.cjs's READ_LIMIT through readWithin(): the helper on its own, with
+// what it says of the reads it cut short and of those that failed,
 // live_camera's readAfterFailure() on a stand-in page, and live_camera run as
 // it is, in a process of its own, on a stand-in for Playwright whose page
 // fails the suite's first step and then answers those reads, fails them or
@@ -38,25 +39,42 @@ test('the reads share a limit a tenth of a second under the page\'s default time
 
 test('reads that answer give exactly what they resolved to, in the order asked, and leave no timer behind', async () => {
   const before = timers();
-  const { values, cutShort } = await readWithin({
+  const { values, cutShort, failed } = await readWithin({
     text: [() => 'Saved', ''], count: [async () => 0, null], none: [async () => undefined, null],
     empty: [async () => null, ''], object: [async () => ({ tracks: [] }), null],
   }, 1000);
   assert.deepEqual(Object.entries(values), [['text', 'Saved'], ['count', 0], ['none', undefined], ['empty', null], ['object', { tracks: [] }]]);
   assert.deepEqual(cutShort, []);
+  assert.deepEqual(failed, [], 'nothing failed');
   assert.equal(timers(), before, 'a timer left behind would hold the run up by the limit');
 });
 
-test('a read that fails, at once, later or by throwing, keeps its fallback and is not cut short', async () => {
+// A read that fails is named in `failed` with its error, the form of a
+// report's cleanupErrors: `<name>: <the error's message>`, or the error
+// itself as a string when it has no message.
+test('a read that fails, at once, later or by throwing, keeps its fallback, is named with its error in failed and is not cut short', async () => {
   const before = timers();
-  const { values, cutShort } = await readWithin({
+  const { values, cutShort, failed } = await readWithin({
     rejects: [() => Promise.reject(new Error('Target page, context or browser has been closed')), ''],
     throws: [() => { throw new Error('not a function'); }, null],
     timesOut: [() => new Promise((resolve, reject) => setTimeout(reject, 20, new Error('Timeout 20000ms exceeded.'))), 'none'],
   }, 1000);
   assert.deepEqual(values, { rejects: '', throws: null, timesOut: 'none' });
   assert.deepEqual(cutShort, []);
+  assert.deepEqual(failed, ['rejects: Target page, context or browser has been closed', 'throws: not a function',
+    'timesOut: Timeout 20000ms exceeded.']);
   assert.equal(timers(), before, 'a timer left behind would hold the run up by the limit');
+});
+
+test('a failure with no message is named by the error itself as a string, and the reads that failed keep the order asked, not the order they failed in', async () => {
+  const later = (ms, error) => () => new Promise((resolve, reject) => setTimeout(reject, ms, error));
+  assert.deepEqual(await readWithin({
+    last: [later(30, new Error('the last to fail')), null], word: [later(20, 'closed'), null], nothing: [later(10, undefined), null],
+    empty: [() => Promise.reject(new Error('')), null], plain: [() => Promise.reject({ message: 'a message, not an Error' }), null],
+    first: [later(0, new TypeError('x is not a function')), null],
+  }, 1000), { values: { last: null, word: null, nothing: null, empty: null, plain: null, first: null }, cutShort: [],
+    failed: ['last: the last to fail', 'word: closed', 'nothing: undefined', 'empty: Error', 'plain: a message, not an Error',
+      'first: x is not a function'] });
 });
 
 test('reads that never answer end together at the limit, once, with their fallbacks and each named with why', async (t) => {
@@ -68,15 +86,17 @@ test('reads that never answer end together at the limit, once, with their fallba
   assert.equal(result, undefined, 'the limit has not passed');
   t.mock.timers.tick(1); await tick();
   assert.deepEqual(result, { values: { first: '', second: null, third: 0 },
-    cutShort: ['first: no answer within 20 s', 'second: no answer within 20 s', 'third: no answer within 20 s'] });
+    cutShort: ['first: no answer within 20 s', 'second: no answer within 20 s', 'third: no answer within 20 s'], failed: [] });
 });
 
-test('a read that waits holds up no other: one answer just before the limit counts, and one after it changes nothing, nor does a late failure', async (t) => {
+test('a read that waits holds up no other: one answer or failure just before the limit counts, and one after it changes nothing, nor does a late failure, which is cut short and never named as failed', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const at = (ms, value) => () => new Promise((resolve) => setTimeout(resolve, ms, value));
+  const failsAt = (ms, message) => () => new Promise((resolve, reject) => setTimeout(reject, ms, new Error(message)));
   let result;
   readWithin({ waits: [never, null], early: [at(5000, 'early'), ''], last: [at(19999, 'just in time'), ''],
-    late: [at(20001, 'too late'), ''], failsLate: [() => new Promise((resolve, reject) => setTimeout(reject, 25000, new Error('too late'))), null] },
+    late: [at(20001, 'too late'), ''], failsEarly: [failsAt(5000, 'gone early'), null], failsLast: [failsAt(19999, 'gone just in time'), null],
+    failsJustLate: [failsAt(20001, 'gone just too late'), null], failsLate: [failsAt(25000, 'too late'), null] },
   20000).then((read) => { result = read; });
   // Time moves on from one timer to the next, as a real host's clock does,
   // with what each settles run before the next.
@@ -84,8 +104,11 @@ test('a read that waits holds up no other: one answer just before the limit coun
   for (const step of [5000, 14999]) { t.mock.timers.tick(step); await tick(); }
   assert.equal(result, undefined, 'the limit has not passed');
   t.mock.timers.tick(1); await tick();
-  const expected = { values: { waits: null, early: 'early', last: 'just in time', late: '', failsLate: null },
-    cutShort: ['waits: no answer within 20 s', 'late: no answer within 20 s', 'failsLate: no answer within 20 s'] };
+  const expected = { values: { waits: null, early: 'early', last: 'just in time', late: '', failsEarly: null, failsLast: null,
+    failsJustLate: null, failsLate: null },
+  cutShort: ['waits: no answer within 20 s', 'late: no answer within 20 s', 'failsJustLate: no answer within 20 s',
+    'failsLate: no answer within 20 s'],
+  failed: ['failsEarly: gone early', 'failsLast: gone just in time'] };
   assert.deepEqual(result, expected);
   assert.deepEqual(Object.keys(result.values), Object.keys(expected.values), 'in the order asked, not the order answered');
   // node:test fails a test on an unhandled rejection.
@@ -100,7 +123,7 @@ test('a read that waits holds up no other: one answer just before the limit coun
 test('the limit starts before any read is asked: a read that sets a timer as long as the limit as it is asked is still waiting when the wait ends', async () => {
   const timesOut = () => new Promise((resolve, reject) => setTimeout(reject, 50, new Error('Timeout 50ms exceeded.')));
   assert.deepEqual(await readWithin({ text: [timesOut, ''], other: [timesOut, ''] }, 50),
-    { values: { text: '', other: '' }, cutShort: ['text: no answer within 0.05 s', 'other: no answer within 0.05 s'] });
+    { values: { text: '', other: '' }, cutShort: ['text: no answer within 0.05 s', 'other: no answer within 0.05 s'], failed: [] });
 });
 
 // A read that never answers, timed out as Playwright 1.64 times out a read it
@@ -138,7 +161,7 @@ test('a read with the page\'s default timeout, timed out as Playwright times it 
     for (let n = 1; n <= 5; n++) {
       const { read, failed } = playwrightRead(PAGE_TIMEOUT - shorter);
       assert.deepEqual(await readWithin({ text: [read, ''] }, limit),
-        { values: { text: '' }, cutShort: [`text: no answer within ${limit / 1000} s`] }, `read ${n}`);
+        { values: { text: '' }, cutShort: [`text: no answer within ${limit / 1000} s`], failed: [] }, `read ${n}`);
       await failed;
     }
   } finally { turning = false; }
@@ -150,7 +173,7 @@ test('while the reads wait, the limit keeps the process alive, so that a process
     + '.then((read) => console.log(JSON.stringify(read)));']);
   assert.equal(killed, false, stderr);
   assert.equal(code, 0, stderr);
-  assert.deepEqual(JSON.parse(stdout || 'null'), { values: { never: 'kept' }, cutShort: ['never: no answer within 0.1 s'] },
+  assert.deepEqual(JSON.parse(stdout || 'null'), { values: { never: 'kept' }, cutShort: ['never: no answer within 0.1 s'], failed: [] },
     'a process that exits with the reads still waiting writes no report');
 });
 

@@ -54,7 +54,9 @@ async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
 // report, may take, all those of one catch or finally together
 // (readWithin()): live_camera's, live_motion's, live_noise's,
 // live_recovery's, external_replay's, solver_update's and browser_smoke's,
-// the stop of a suite's fixture among them; and how long the call after
+// the stop of a suite's fixture among them, and browser_regressions' when
+// its camera-ownership check's wait for the solve fails
+// (shownAfterSolveWait()); and how long the call after
 // some steps of live_camera, browser_regressions and scanner_repair that
 // puts the page back for the steps after them may take (the
 // stepThenPutBack() of each), a page.evaluate() or a
@@ -88,17 +90,26 @@ const READ_LIMIT = 19900;
    ended (stepThenPutBack() in the suites that have one). They all
    start at once, so that one that waits holds up no other, and the wait for
    them ends when every one has settled or after `limit` ms, whichever comes
-   first. Resolves to { values, cutShort }:
+   first. Resolves to { values, cutShort, failed }:
    `values` has every name, in the order of `reads`, with what its read
    resolved to, or its fallback if the read rejected or had not settled by
-   then, and `cutShort` the names of those that had not settled, each as
-   `<name>: no answer within <limit in seconds> s`. While the reads wait, the
-   limit's timer keeps the process alive, so that a process with nothing else
-   alive does not exit before the wait ends, with no report written. Leaves
-   no timer behind, and what a read does after the wait changes nothing: its
-   late answer is dropped and its late failure lost. */
+   then; `cutShort` the names of those that had not settled, each as
+   `<name>: no answer within <limit in seconds> s`; and `failed` the names of
+   those that rejected, or threw as they were asked, before the wait ended,
+   each as `<name>: <its error>` (the error's message, or the error itself
+   as a string when it has no message), the form of a report's
+   cleanupErrors. Both lists keep the order of `reads`, and no read is in
+   both: one that fails after the wait was cut short. The suites whose
+   finally reads their page, after a pass too, keep the two lists in the
+   engine's report as readsCutShort and readsFailed, and engines() in
+   harness.cjs fails an engine that passed when either names a read. While
+   the reads wait, the limit's timer keeps the process alive, so that a
+   process with nothing else alive does not exit before the wait ends, with
+   no report written. Leaves no timer behind, and what a read does after the
+   wait changes nothing: its late answer is dropped and its late failure
+   lost. */
 async function readWithin(reads, limit) {
-  const names = Object.keys(reads), answered = new Map();
+  const names = Object.keys(reads), answered = new Map(), errors = new Map();
   let timer;
   try {
     // The timer starts before any read is asked, so that the wait counts from
@@ -108,17 +119,18 @@ async function readWithin(reads, limit) {
     // it down, as the page's default is longer than READ_LIMIT: a read still
     // waiting then is cut short, and its own timeout changes nothing.
     await Promise.race([
-      Promise.all(names.map((name) => Promise.resolve().then(reads[name][0]).catch(() => reads[name][1])
-        .then((value) => { answered.set(name, value); }))),
+      Promise.all(names.map((name) => Promise.resolve().then(reads[name][0])
+        .then((value) => { answered.set(name, value); }, (error) => { errors.set(name, error); }))),
       new Promise((resolve) => { timer = setTimeout(resolve, limit); }),
     ]);
   } finally { clearTimeout(timer); }
-  const values = {}, cutShort = [];
+  const values = {}, cutShort = [], failed = [];
   for (const name of names) {
     values[name] = answered.has(name) ? answered.get(name) : reads[name][1];
-    if (!answered.has(name)) cutShort.push(`${name}: no answer within ${limit / 1000} s`);
+    if (errors.has(name)) failed.push(`${name}: ${errors.get(name)?.message || String(errors.get(name))}`);
+    else if (!answered.has(name)) cutShort.push(`${name}: no answer within ${limit / 1000} s`);
   }
-  return { values, cutShort };
+  return { values, cutShort, failed };
 }
 
 // Whether a browser of this process would not close (see exitIfUnclosed).

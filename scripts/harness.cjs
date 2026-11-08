@@ -1,7 +1,8 @@
 /* What every browser suite otherwise repeats: a server for the built site,
-   the two mobile engines, one report per engine, a screenshot on failure, a
-   close that cannot wait for ever, temporary directories that go as the
-   process exits, on a signal too, and the exit code. */
+   the two mobile engines, one report per engine, a screenshot asked for
+   when a suite fails or its pages throw or end, a close that cannot wait for
+   ever, temporary directories that go as the process exits, on a signal
+   too, and the exit code. */
 const assert = require("node:assert/strict");
 const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -178,12 +179,20 @@ function baselineSite(commit, files) {
    reports to `file` (under browser-artifacts unless it names a directory)
    after each engine. A page error fails the engine, on the suite's page or
    on any other page it opens in the engine's browser, and so does anything
-   else watch() records, which also leads the failure; a failing engine gets
-   a screenshot, and every engine runs before the first failure is rethrown.
-   A close that rejects or runs past watch.cjs's CLOSE_LIMIT (or `closeLimit`
-   ms) adds its failure to the report's cleanupErrors and fails the engine if
-   nothing else did; a suite's failure stays first, and the report is written
-   and the next engine run all the same. `report` starts as
+   else watch() records, which also leads the failure; for an engine that
+   fails so, or whose suite throws, a screenshot is asked for (a page or
+   browser that has gone gives none), and every engine runs before the first
+   failure is rethrown. An engine that passed still fails, with no
+   screenshot, when its report names anything in `readsCutShort` or
+   `readsFailed`, whoever put it there: the lists of the reads of its page
+   that watch.cjs's readWithin() cut short or saw fail, as it spells them,
+   which a suite fills after its steps have passed only in its finally (a
+   read in a catch, or a call that puts the page back cut short, comes with
+   a failure). The error names them after the engine's name, those cut short
+   first. And a close that rejects or runs past watch.cjs's CLOSE_LIMIT (or
+   `closeLimit` ms) adds its failure to the report's cleanupErrors and fails
+   the engine if nothing else did; a failure before it stays first, and the
+   report is written and the next engine run all the same. `report` starts as
    { browser, version, errors, ended, cleanupErrors } (the first two lists as
    watch() records them, for the browser and every context and page the suite
    opens on it); the suite adds what it measures. */
@@ -219,6 +228,23 @@ async function engines(file, suite, { context = PHONE, timeout = 20000, screensh
       console.error(name, error);
       if (page) await page.screenshot({ path: `browser-artifacts/${name}-${screenshot}-failure.png`, fullPage: true }).catch(() => {});
     } finally {
+      // Reads that the suite's finally cut short or saw fail after its steps
+      // passed fail the engine here, beside the close and as a close that
+      // fails does, with no screenshot (web/TESTING.md): only once the try has
+      // found no page error and nothing ended, so that those fail it first.
+      // A read on a browser that has gone can fail before Playwright reports
+      // what ended (watch()), and the try then finds nothing yet: the failure
+      // waits for that news, for at most a second, as the catch's does, and
+      // what ended leads it. When the news comes first, the try has failed
+      // the engine, as for any lost browser.
+      const unread = [].concat(report.readsCutShort ?? [], report.readsFailed ?? []);
+      if (unread.length && report.status === "passed") {
+        const error = await watched.lead(new Error(`${name}: ${unread.join("; ")}`));
+        report.status = "failed";
+        report.failure = error.stack;
+        failures.push(error);
+        console.error(name, error);
+      }
       const unclosed = await watched.close(name);
       if (unclosed && report.status === "passed") {
         report.status = "failed";

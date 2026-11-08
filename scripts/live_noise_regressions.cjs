@@ -102,15 +102,17 @@ async function begin() {
 // the snapshot has answered or failed. Both share READ_LIMIT (watch.cjs), so
 // that a page that will not answer, as in the WebKit hang (web/TESTING.md),
 // cannot hold the run here: `final` is null when the snapshot fails or is
-// cut short, a stop that fails changes nothing, and `readsCutShort` names
-// what was cut short, which after a pass fails the engine (run()).
+// cut short, `readsCutShort` names what was cut short and `readsFailed`, with
+// its error, what failed. After a pass either fails the engine, in engines()
+// (harness.cjs), as a browser that would not close does; after a failure the
+// engine keeps its own.
 async function finalAndStop(page,report){
   let snapshotted;const snapshot=new Promise(resolve=>{snapshotted=resolve;});
-  const {values,cutShort}=await readWithin({
+  const {values,cutShort,failed}=await readWithin({
     final:[async()=>{try{return await page.evaluate(()=>window.noiseState?.snapshot());}finally{snapshotted();}},null],
     stop:[async()=>{await snapshot;return page.evaluate(()=>window.noiseState?.stop());},undefined],
   },READ_LIMIT);
-  report.final=values.final;report.readsCutShort=cutShort;
+  report.final=values.final;report.readsCutShort=cutShort;report.readsFailed=failed;
 }
 async function run(){const server=await serve();try{
   await engines('live-noise.json',async(page,report,name)=>{
@@ -186,12 +188,6 @@ async function run(){const server=await serve();try{
         `changed 8 to 3 retires original reading and triggers fresh OCR, which reads the 3 and no other digit wrong without a flag${bitmaps?', also with a frame lost right after the change':''}`];
       await page.screenshot({path:`browser-artifacts/${name}-live-noise.png`});
     }finally{await finalAndStop(page,report);}
-    // Reached only after a pass, so that a failure stays the engine's own: a
-    // read cut short then fails the engine with the names, as a browser that
-    // would not close fails one that passed (web/TESTING.md). And as with such
-    // a close, an uncaught page error or a page or browser lost fails it
-    // instead, through engines()' own checks once this returns.
-    if(report.readsCutShort.length&&!report.errors.length&&!report.ended.length)throw Error(`${name}: ${report.readsCutShort.join('; ')}`);
   },{timeout:60000});
 }finally{await server.close();}}
 module.exports={run,finalAndStop};main(module,run);
