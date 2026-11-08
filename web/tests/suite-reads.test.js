@@ -384,12 +384,13 @@ const READ_ERROR = 'stand-in: the read failed';
 // throws an uncaught error ("pageerror") or crashes ("crash") as the first
 // of those reads is asked, which watch() hears, since the browser and its
 // context tell it of the context and the page as they open, as Playwright's
-// do. Each launch keeps the process alive until its browser closes, as a
-// live browser's pipes do.
+// do; and PLAYED_OVER replaces some answers of PLAYED, by source. Each launch
+// keeps the process alive until its browser closes, as a live browser's
+// pipes do.
 const PLAYWRIGHT = `const fs = require("node:fs");
-const { PLAN, PLAY, BROWSER_HANGS, REFUSE, UNREADY, SHOT_FAILS, EVENT } = process.env, plans = JSON.parse(PLAN);
+const { PLAN, PLAY, BROWSER_HANGS, REFUSE, UNREADY, SHOT_FAILS, EVENT, PLAYED_OVER } = process.env, plans = JSON.parse(PLAN);
 const NAMES = ${JSON.stringify(NAMES)}, ANSWERS = ${JSON.stringify(ANSWERS)};
-const PLAYED = ${JSON.stringify(PLAYED)}, WAITED = ${JSON.stringify(WAITED)};
+const PLAYED = { ...${JSON.stringify(PLAYED)}, ...JSON.parse(PLAYED_OVER || "{}") }, WAITED = ${JSON.stringify(WAITED)};
 // The listeners on() adds, by event, and emit(), which calls them.
 const events = () => {
   const listeners = {};
@@ -511,7 +512,7 @@ async function ran(t, suite, env) {
   const flags = Object.fromEntries(['PLAY', 'BROWSER_HANGS', 'REFUSE', 'UNREADY', 'SHOT_FAILS'].map((flag) => [flag, env[flag] ? '1' : '']));
   const ended = await finish(['-r', inTree('preload.cjs'), inTree(script)], { cwd: directory,
     env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', PLAN: JSON.stringify(env.PLAN),
-      EVENT: env.EVENT ?? '', ...flags } });
+      EVENT: env.EVENT ?? '', PLAYED_OVER: JSON.stringify(env.PLAYED ?? {}), ...flags } });
   const lines = ended.stdout.trim().split(/\r?\n/), limits = /^limits (.+)$/.exec(lines.at(-1));
   const reports = fs.existsSync(inTree(file)) ? JSON.parse(fs.readFileSync(inTree(file), 'utf8')) : null;
   return { ...ended, lines, limits: limits && JSON.parse(limits[1]), reports };
@@ -739,6 +740,22 @@ describe('external_replay\'s checks of what its stop says it left, run as it is'
     for (const name of ['chromium', 'webkit'])
       assert.ok(stderr.includes(`${name} ${failure}`), `${name}'s failure printed: ${stderr}`);
     assert.equal(endedWith(stderr, 'AssertionError '), failure, `what the run ended with: ${stderr}`);
+  });
+
+  // With every reading empty, the last step, the check that a required
+  // photograph was read, fails in the two fixtures that require one, after
+  // all the others passed, while the third's steps pass.
+  test('after its last step fails, a required photograph unread, each engine keeps that error too, while the fixture that requires none passes its steps and fails on the check', async (t) => {
+    const left = { active: true }, failure = `AssertionError [ERR_ASSERTION]: ${LEFT.active(true)}`;
+    const { code, killed, stdout, stderr, reports } = await ran(t, 'external_replay', { PLAN: { closed: { answer: { ...ANSWERS.closed, ...left } } },
+      PLAY: true, PLAYED: { '()=>externalReplay.report()': { reads: [] } } });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    const unread = (browser, name) => `AssertionError [ERR_ASSERTION]: ${browser}: ${name}: required photograph had no completed reading within 25 seconds`;
+    assert.deepEqual(reports.map((report) => [report.browser, report.source.name, report.outcome, report.acquisitionRequired, headOf(report.failure),
+      report.stepCleanupErrors]), JSON.parse(FIXTURES).fixtures.flatMap(({ name }) => ['chromium', 'webkit'].map((browser) => [browser, name,
+      'no-completed-reading', name !== 'images/another.webp', name === 'images/another.webp' ? failure : unread(browser, name), NAMED(left)])));
+    assert.equal(endedWith(stderr, 'AssertionError '), unread('chromium', JSON.parse(FIXTURES).fixtures[0].name), `what the run ended with: ${stderr}`);
   });
 
   test('after one engine\'s own failure, with a stop that says the replay still runs, the other engine and the next fixtures run and pass, and the run ends with that failure', async (t) => {
