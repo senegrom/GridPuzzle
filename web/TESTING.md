@@ -936,7 +936,9 @@ that a scene of `live_recovery` whose page never gets ready has no record; in
 `live_motion` whenever it has a page; and in `browser_smoke` and
 `solver_update` only after a failure on a page, in `browser_smoke` once the
 failure's screenshot has been taken. Reads that answer give what they gave
-before, and `external_replay`'s `finally` checks what its stop says as before.
+before, and `external_replay`'s `finally` checks what its stop says as before,
+though a check that fails there after a step's own failure no longer replaces
+that failure (below).
 `live_noise` and `live_recovery` still ask for the stop only once their
 snapshot has answered or failed, as they always did, and within the same limit,
 so that a fixture is never stopped before its last snapshot. `browser_smoke`
@@ -1031,8 +1033,9 @@ ends by itself; and its timers of `READ_LIMIT`'s length, which last a tenth of
 a second there, are counted, one for each `catch` or `finally` that reads, in
 each engine. The rows are reads that all answer, all fail or none answer, the
 last also with a browser that will not close, and in each suite with two reads
-one that answers or fails while the other never does; and `external_replay`
-still fails an engine whose stop says the replay still runs. The four suites
+one that answers or fails while the other never does; the rows in which
+`external_replay`'s stop says it left the replay running, a source retained
+or scratch pixels follow the account of its checks (below). The four suites
 whose `finally` reads also play their steps through to a pass, with nothing
 read in a `catch` (below). Last come engines that never reach the reads, whose
 reports have none of their fields and neither list: one whose `newPage()`
@@ -1227,6 +1230,86 @@ own failure, an uncaught page error, a crash or the browser's disconnection
 before the reads failed as well, the engine fails with that, asking for its
 screenshot, which the stand-in takes, with nothing printed of the reads; those
 rows pass on the harness as it was too.
+
+Until November 2026 a check in `external_replay`'s `finally` that failed after
+one of the fixture's steps had failed replaced that step's failure. The
+`finally` stops the replay and then checks what the stop says it left
+(`closed`): the replay inactive, with no retained sources and no scratch
+pixels. The three checks were `assert.equal()` calls with no message, and an
+error thrown in a `finally` replaces the one its `try` threw, so that after a
+step failed on a replay that its stop then said was still running, say, the
+engine failed with `AssertionError [ERR_ASSERTION]: Expected values to be
+strictly equal:` and `true !== false`, which said neither which check failed
+nor what the stop said, and the step's own error was printed nowhere, kept in
+no report and not what the run ended with. As the owner chose, the step's own
+failure now comes first there too, as it does in `stepThenPutBack()` and, for
+reads after a failure, in `engines()` (above). The checks are
+`checkClosed()`'s, which the `finally` calls once the stop has settled. It
+makes all three, comparing as `assert.equal()` did, and names each that fails
+in the engine's report's `stepCleanupErrors`, the list in which
+`stepThenPutBack()` names a call that fails to put the page back, as `closed:
+<its message>`, the message saying which check failed and what the stop gave:
+`closed: the stop must leave the replay inactive (active: true)`, `closed: the
+stop must leave no retained sources (retainedSources: 2)` or `closed: the stop
+must leave no scratch pixels (scratchPixels: 4096)`, a string in quotes. The
+list is made when it first gets an entry, so that the report of a fixture whose
+stop left nothing amiss, or gave no answer, has none, as before. After a step's
+own failure nothing is thrown, so that the engine fails with that failure: it
+is printed, kept in the report's `failure` and, when it comes first, what the
+run ends with, as any engine's own failure is, and nothing is printed for the
+checks. After steps that passed, the first check that failed fails the engine,
+as it always did, through the `catch` of `engines()`, which asks for the
+failure's screenshot, and each check that failed is named in
+`stepCleanupErrors` as well, as a call of `stepThenPutBack()` that fails after
+a pass is. That failure now reads `AssertionError [ERR_ASSERTION]: the stop
+must leave the replay inactive (active: true)`, say, where it read
+`AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:` and
+`true !== false`: the message is thrown through `assert.fail()`, which keeps
+it as it is, since `assert.equal()`, in the Node 22 and 24 here, adds its own
+diff to a message it is given. Nothing else changes: the stop comes before the
+checks and has `READ_LIMIT`; a stop cut short or failed leaves `closed` null,
+nothing to check and its name in `readsCutShort` or `readsFailed`, which fails
+an engine that passed in `engines()` (above); the report's other fields are as
+they were; and the other engine and the next fixtures run as after any
+failure, the run ending with the first failure. Measured on Windows, in both
+engines, with a preload making the first fixture's Chromium fail in the page
+at its step that reads `externalReplay.error`, with `sabotage.cjs: the step
+failed`, and making its stop, which still stopped the replay, answer `active:
+true`, one run of each at 62 to 71% CPU: as it was, that engine failed with
+`AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:`, which
+the run ended with, and the step's error was in no report and printed nowhere;
+as it is now, it failed with `page.evaluate: Error: sabotage.cjs: the step
+failed`, which the run ended with, its report keeping `closed` as the stop said
+it and naming `closed: the stop must leave the replay inactive (active: true)`
+in `stepCleanupErrors`, and nothing printed an `AssertionError`. Both times
+the other two fixtures passed in Chromium, and WebKit failed at its first step
+in all three, as on Windows (above). With nothing sabotaged, in one run of
+each at 47 to 88% CPU, all three fixtures passed in Chromium and failed in
+WebKit at their first step, as it was and as it is now, every report with the
+same fields in the same order; a first pair of runs, at 39 to 87% CPU, lost
+the second fixture in Chromium, as it was and as it is now, to a 60-s wait for
+`body[data-ready]`, the others as in the second pair.
+`web/tests/suite-reads.test.js` runs `checkClosed()` on its own, after a
+failed step and after a passed one, with a stop that says it left the replay
+running, a source retained, scratch pixels or all three, one that answers with
+none of the three or with values of another kind (`0` is not `false`, `"0"`
+not `0` and `null` not `0`), a clean, inactive replay and no answer: each check
+that fails named, in the order checked, and nothing else; after a failure
+nothing thrown, after a pass the first that failed thrown, as an assertion with
+its own message; and what the list has already kept. And it runs
+`external_replay` as it is on its stand-in for Playwright: with each fixture's
+stop saying it left the replay running, a source retained, scratch pixels or
+all three after steps that fail, every engine of every fixture fails with the
+step's own error, printed after the engine's name and what the run ends with,
+its report keeping `closed` as the stop said it and naming each check that
+failed, with nothing printed of the checks, the stop asked once, with one
+`READ_LIMIT`, before the failure's screenshot and the close; with a clean,
+inactive replay after steps that fail nothing is named; after steps that pass
+with the stop saying the replay still runs, every engine fails with that
+check's own error, printed and what the run ends with, asking for its
+screenshot, and names it; and with only the first fixture's Chromium failing
+so, the other engine and the next fixtures pass and the run ends with that
+step's error.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
