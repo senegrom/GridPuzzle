@@ -1324,10 +1324,14 @@ step, the check that a required photograph was read, fails in the two fixtures
 that require one, their engines keep that error and name the check, while the
 third's steps pass and its engines fail on the check; with only the first
 fixture's Chromium failing at its first step so, the other engine and the next
-fixtures pass and the run ends with that step's error; and with WebKit failing
-so in the first two fixtures, after Chromium passed in each, each of those
-engines keeps its own error and names the check, since each engine has its own
-word on whether its steps passed.
+fixtures pass and the run ends with that step's error; with WebKit failing so
+in the first two fixtures, after Chromium passed in each, each of those engines
+keeps its own error and names the check, since each engine has its own word on
+whether its steps passed; and so do the first fixture's WebKit, after that
+fixture's Chromium passed its steps and then failed on the check, and the third
+fixture's Chromium, after the same browser's steps passed in the first two, the
+run then ending with that check's failure, the first, which is all that is
+printed of the checks.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong

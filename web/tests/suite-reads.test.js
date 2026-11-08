@@ -808,6 +808,24 @@ describe('external_replay\'s checks of what its stop says it left, run as it is'
     assert.equal(endedWith(stderr, 'Error: '), 'Error: no site here', `what the run ended with: ${stderr}`);
     assert.doesNotMatch(stderr, /AssertionError|the stop must leave/, 'nothing printed of the checks');
   });
+
+  // So does one whose steps fail after the same browser passed its steps in
+  // an earlier fixture, or after an engine that passed its steps and then
+  // failed on the check: that failure, the first, is what the run ends with.
+  test('an engine whose steps fail after the same browser passed its steps in an earlier fixture, or after an engine that passed its steps and failed on the check, keeps its own failure and names the check', async (t) => {
+    const dirty = { closed: { answer: { ...ANSWERS.closed, active: true } } }, clean = { '*': 'answer' };
+    const plans = [[dirty, true], [dirty, false], [clean, true], [clean, true], [dirty, false], [clean, true]].map(([plan, play]) => ({ plan, play }));
+    const failure = `AssertionError [ERR_ASSERTION]: ${LEFT.active(true)}`;
+    const { code, killed, stdout, stderr, reports } = await ran(t, 'external_replay', { PLAN: plans });
+    assert.equal(killed, false, `it ended by itself: ${stdout}${stderr}`);
+    assert.equal(code, 1, stderr);
+    assert.deepEqual(reports.map((report) => [report.browser, report.status, headOf(report.failure), report.stepCleanupErrors]),
+      plans.map(({ plan, play }, n) => [enginesOf(3)[n], ...(plan === clean ? ['passed', undefined, undefined]
+        : ['failed', play ? failure : 'Error: no site here', NAMED({ active: true })])]));
+    assert.equal(endedWith(stderr, 'AssertionError '), failure, `what the run ended with: ${stderr}`);
+    assert.deepEqual(stderr.split(/\r?\n/).filter((line) => /AssertionError|the stop must leave/.test(line)), [`chromium ${failure}`, failure],
+      `nothing printed of the checks but the first engine's failure and the run's end: ${stderr}`);
+  });
 });
 
 // The reads of a finally run after a pass too: live_motion's stop,
