@@ -1251,68 +1251,69 @@ in the engine's report's `stepCleanupErrors`, the list in which
 <its message>`, the message saying which check failed and what the stop gave:
 `closed: the stop must leave the replay inactive (active: true)`, `closed: the
 stop must leave no retained sources (retainedSources: 2)` or `closed: the stop
-must leave no scratch pixels (scratchPixels: 4096)`, a string in quotes. The
-list is made when it first gets an entry, so that the report of a fixture whose
-stop left nothing amiss, or gave no answer, has none, as before. After a step's
-own failure nothing is thrown, so that the engine fails with that failure: it
-is printed, kept in the report's `failure` and, when it comes first, what the
-run ends with, as any engine's own failure is, and nothing is printed for the
-checks. After steps that passed, the first check that failed fails the engine,
-as it always did, through the `catch` of `engines()`, which asks for the
-failure's screenshot, and each check that failed is named in
-`stepCleanupErrors` as well, as a call of `stepThenPutBack()` that fails after
-a pass is. That failure now reads `AssertionError [ERR_ASSERTION]: the stop
-must leave the replay inactive (active: true)`, say, where it read
-`AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:` and
-`true !== false`: the message is thrown through `assert.fail()`, which keeps
-it as it is, since `assert.equal()`, in the Node 22 and 24 here, adds its own
-diff to a message it is given. Nothing else changes: the stop comes before the
-checks and has `READ_LIMIT`; a stop cut short or failed leaves `closed` null,
-nothing to check and its name in `readsCutShort` or `readsFailed`, which fails
-an engine that passed in `engines()` (above); the report's other fields are as
-they were; and the other engine and the next fixtures run as after any
-failure, the run ending with the first failure. Measured on Windows, in both
-engines, with a preload making the first fixture's Chromium fail in the page
-at its step that reads `externalReplay.error`, with `sabotage.cjs: the step
-failed`, and making its stop, which still stopped the replay, answer `active:
-true`, one run of each at 62 to 71% CPU: as it was, that engine failed with
-`AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:`, which
-the run ended with, and the step's error was in no report and printed nowhere;
-as it is now, it failed with `page.evaluate: Error: sabotage.cjs: the step
-failed`, which the run ended with, its report keeping `closed` as the stop said
-it and naming `closed: the stop must leave the replay inactive (active: true)`
-in `stepCleanupErrors`, and nothing printed an `AssertionError`. Both times
-the other two fixtures passed in Chromium, and WebKit failed at its first step
-in all three, as on Windows (above). With nothing sabotaged, in one run of
-each at 47 to 88% CPU, all three fixtures passed in Chromium and failed in
-WebKit at their first step, as it was and as it is now, every report with the
-same fields in the same order; a first pair of runs, at 39 to 87% CPU, lost
-the second fixture in Chromium, as it was and as it is now, to a 60-s wait for
+must leave no scratch pixels (scratchPixels: 4096)`, with a string the stop
+gave in quotes. The list is made when it first gets an entry, so that the
+report of a fixture whose stop left nothing amiss, or gave no answer, has none,
+as before. After a step's own failure nothing is thrown, so that the engine
+fails with that failure: it is printed, kept in the report's `failure` and,
+when it comes first, what the run ends with, as any engine's own failure is,
+and nothing is printed for the checks. After steps that passed, the first check
+that failed fails the engine, as it always did, through the `catch` of
+`engines()`, which asks for the failure's screenshot, and each check that
+failed is named in `stepCleanupErrors` as well, as a call of
+`stepThenPutBack()` that fails after a pass is. That failure now reads
+`AssertionError [ERR_ASSERTION]: the stop must leave the replay inactive
+(active: true)`, say, where it read `AssertionError [ERR_ASSERTION]: Expected
+values to be strictly equal:` and `true !== false`: the message is thrown
+through `assert.fail()`, which keeps it as it is, since `assert.equal()`, in
+the Node 22 and 24 here, adds its own diff to a message it is given. Nothing
+else changes: the stop comes before the checks and has `READ_LIMIT`; a stop cut
+short or failed leaves `closed` null, nothing to check and its name in
+`readsCutShort` or `readsFailed`, which fails an engine that passed in
+`engines()` (above); the report's other fields are as they were; and the other
+engine and the next fixtures run as after any failure, the run ending with the
+first failure. Measured on Windows, in both engines, with a preload making the
+first fixture's Chromium fail in the page at its step that reads
+`externalReplay.error`, with `sabotage.cjs: the step failed`, and making its
+stop, which still stopped the replay, answer `active: true`, one run of each at
+62 to 71% CPU: as it was, that engine failed with `AssertionError
+[ERR_ASSERTION]: Expected values to be strictly equal:`, which the run ended
+with, and the step's error was in no report and printed nowhere; as it is now,
+it failed with `page.evaluate: Error: sabotage.cjs: the step failed`, which the
+run ended with, its report keeping `closed` as the stop said it and naming
+`closed: the stop must leave the replay inactive (active: true)` in
+`stepCleanupErrors`, and nothing printed an `AssertionError`. Both times the
+other two fixtures passed in Chromium, and WebKit failed at its first step in
+all three, as on Windows (above). With nothing sabotaged, in one run of each at
+47 to 88% CPU, all three fixtures passed in Chromium and failed in WebKit at
+their first step, as it was and as it is now, every report with the same fields
+in the same order; a first pair of runs, at 39 to 87% CPU, lost the second
+fixture in Chromium, as it was and as it is now, to a 60-s wait for
 `body[data-ready]`, the others as in the second pair.
-`web/tests/suite-reads.test.js` runs `checkClosed()` on its own, after a
-failed step and after a passed one, with a stop that says it left the replay
-running, a source retained, scratch pixels or all three, one that answers with
-none of the three or with values of another kind (`0` is not `false`, `"0"`
-not `0` and `null` not `0`), a clean, inactive replay and no answer: each check
-that fails named, in the order checked, and nothing else; after a failure
-nothing thrown, after a pass the first that failed thrown, as an assertion with
-its own message; and what the list has already kept. And it runs
-`external_replay` as it is on its stand-in for Playwright: with each fixture's
-stop saying it left the replay running, a source retained, scratch pixels or
-all three after steps that fail, every engine of every fixture fails with the
-step's own error, printed after the engine's name and what the run ends with,
-its report keeping `closed` as the stop said it and naming each check that
-failed, with nothing printed of the checks, the stop asked once, with one
-`READ_LIMIT`, before the failure's screenshot and the close; with a clean,
-inactive replay after steps that fail nothing is named; after steps that pass
-with the stop saying the replay still runs, every engine fails with that
-check's own error, printed and what the run ends with, asking for its
-screenshot, and names it; with every reading empty, so that the last step,
-the check that a required photograph was read, fails in the two fixtures that
-require one, their engines keep that error and name the check, while the
-third's steps pass and its engines fail on the check; and with only the first
-fixture's Chromium failing at its first step so, the other engine and the
-next fixtures pass and the run ends with that step's error.
+`web/tests/suite-reads.test.js` runs `checkClosed()` on its own, after a failed
+step and after a passed one, with a stop that says it left the replay running,
+a source retained, scratch pixels or all three, one that answers with none of
+the three or with values of another kind (`0` is not `false`, `"0"` not `0` and
+`null` not `0`), a clean, inactive replay and no answer: each check that fails
+named, in the order checked, and nothing else; after a failure nothing thrown,
+after a pass the first that failed thrown, as an assertion with its own
+message; and what the list has already kept. And it runs `external_replay` as
+it is on its stand-in for Playwright: with each fixture's stop saying it left
+the replay running, a source retained, scratch pixels or all three after steps
+that fail, every engine of every fixture fails with the step's own error,
+printed after the engine's name and what the run ends with, its report keeping
+`closed` as the stop said it and naming each check that failed, with nothing
+printed of the checks, the stop asked once, with one `READ_LIMIT`, before the
+failure's screenshot and the close; with a clean, inactive replay after steps
+that fail nothing is named; after steps that pass with the stop saying the
+replay still runs, every engine fails with that check's own error, printed and
+what the run ends with, asking for its screenshot, and names it; with every
+reading empty, so that the last step, the check that a required photograph was
+read, fails in the two fixtures that require one, their engines keep that error
+and name the check, while the third's steps pass and its engines fail on the
+check; and with only the first fixture's Chromium failing at its first step so,
+the other engine and the next fixtures pass and the run ends with that step's
+error.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
