@@ -268,13 +268,17 @@ describe('external_replay\'s stop of its replay, and its checks of what the stop
     }
   });
 
-  test('a stop that answers with none of the three: each check fails, saying so, after a failure or a pass', () => {
-    for (const stepsPassed of [false, true]) {
-      const r = { closed: { view: 'live' } }, check = () => replay.checkClosed(r, stepsPassed);
-      if (stepsPassed) assert.throws(check, { message: LEFT.active(undefined) });
-      else assert.doesNotThrow(check);
-      assert.deepEqual(r.stepCleanupErrors, NAMED({ active: undefined, retainedSources: undefined, scratchPixels: undefined }));
-    }
+  // Compared as assert.equal() compared them: 0 is not false, "0" not 0 and
+  // null not 0, and a string is shown in quotes.
+  test('a stop that answers with none of the three, or with values of another kind: each check fails, saying what the stop gave, after a failure or a pass', () => {
+    for (const stepsPassed of [false, true])
+      for (const [closed, left] of [[{ view: 'live' }, { active: undefined, retainedSources: undefined, scratchPixels: undefined }],
+        [{ active: 0, retainedSources: '0', scratchPixels: null }, { active: 0, retainedSources: '"0"', scratchPixels: null }]]) {
+        const r = { closed }, check = () => replay.checkClosed(r, stepsPassed);
+        if (stepsPassed) assert.throws(check, { message: LEFT.active(left.active) });
+        else assert.doesNotThrow(check);
+        assert.deepEqual(r.stepCleanupErrors, NAMED(left), JSON.stringify(closed));
+      }
   });
 
   test('a clean, inactive replay, and a stop that gave no answer (null), name nothing and throw nothing, after a failure or a pass', () => {
@@ -288,7 +292,7 @@ describe('external_replay\'s stop of its replay, and its checks of what the stop
 
   test('the list keeps what is in it already', () => {
     const r = { closed: { ...ANSWERS.closed, scratchPixels: 1 }, stepCleanupErrors: ['camera: earlier'] };
-    replay.checkClosed(r, false);
+    assert.doesNotThrow(() => replay.checkClosed(r, false));
     assert.deepEqual(r.stepCleanupErrors, ['camera: earlier', ...NAMED({ scratchPixels: 1 })]);
   });
 });

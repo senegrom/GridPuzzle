@@ -93,23 +93,25 @@ async function stopReplay(page,r){
 }
 // Checks what a stop that answered says it left: the replay inactive, with no
 // retained sources and no scratch pixels, each compared as assert.equal() did
-// (Object.is()), and each with a message saying which check it is and what
-// the stop said, which assert.ok() keeps as it is (assert.equal() would add
-// its own diff to it). Every check is made, and each that fails is named in
-// the engine's report's `stepCleanupErrors`, as `closed: <its message>`, the
-// list made when it first gets one, as the suites with a stepThenPutBack()
-// name a call that fails to put their page back. After steps that passed, the
-// first check that failed is then thrown, which fails the engine through
-// engines()' catch, with the failure's screenshot, as it always did; after a
-// step's own failure nothing is thrown, so that the engine fails with the
-// step's own error. With `closed` null there is nothing to check.
+// (Object.is()), and each that fails with a message saying which check it is
+// and what the stop gave (a string in quotes). Every check is made, and each
+// that fails is named in the engine's report's `stepCleanupErrors`, as
+// `closed: <its message>`, the list made when it first gets one, as the
+// suites with a stepThenPutBack() name a call that fails to put their page
+// back. After steps that passed, the first check that failed is then thrown,
+// as an assertion with its message alone (assert.fail(): assert.equal()
+// would add its own diff), which fails the engine through engines()' catch,
+// with the failure's screenshot, as it always did; after a step's own failure
+// nothing is thrown, so that the engine fails with the step's own error. With
+// `closed` null there is nothing to check.
 function checkClosed(r,stepsPassed){
  if(!r.closed)return;
- const failures=[];
- for(const [field,expected,left] of [['active',false,'the replay inactive'],['retainedSources',0,'no retained sources'],['scratchPixels',0,'no scratch pixels']])
-  try{assert.ok(Object.is(r.closed[field],expected),`the stop must leave ${left} (${field}: ${r.closed[field]})`);}catch(error){failures.push(error);}
- if(failures.length)r.stepCleanupErrors=[...(r.stepCleanupErrors??[]),...failures.map(error=>`closed: ${error.message}`)];
- if(stepsPassed&&failures.length)throw failures[0];
+ const shown=value=>typeof value==='string'?JSON.stringify(value):String(value);
+ const failed=[['active',false,'the replay inactive'],['retainedSources',0,'no retained sources'],['scratchPixels',0,'no scratch pixels']]
+  .filter(([field,expected])=>!Object.is(r.closed[field],expected))
+  .map(([field,,left])=>`the stop must leave ${left} (${field}: ${shown(r.closed[field])})`);
+ if(failed.length)r.stepCleanupErrors=[...(r.stepCleanupErrors??[]),...failed.map(message=>`closed: ${message}`)];
+ if(stepsPassed&&failed.length)assert.fail(failed[0]);
 }
 async function run(){
  const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=replayFixtures(corpus),reports=[],failures=[];
