@@ -115,8 +115,22 @@ function checkClosed(r,stepsPassed){
  if(failed.length)r.stepCleanupErrors=[...(r.stepCleanupErrors??[]),...failed.map(message=>`closed: ${message}`)];
  if(stepsPassed&&failed.length)assert.fail(failed[0]);
 }
+// The run: the three fixtures in turn, each in an engines() call of its own,
+// whose report file (external-replay-<i>.json) is read back into the run's
+// own, external-replay.json, written once the server has stopped. A report
+// file that cannot be read back or written (held by antivirus, an indexer or
+// OneDrive, a disk that fails, text that is not JSON) is printed at once, on a
+// line of its own, "Could not read back <file>: <its error>" or "Could not
+// write <file>: <its error>" (the error's message, or the error itself as a
+// string when it has none), and its error is kept in `fileErrors`: the next
+// fixture runs as after any engine's failure, and the run's report lacks the
+// records of a file that could not be read back. The run ends with the first
+// engine's failure or, when no engine failed, with the first of those errors,
+// so that a report file that could not be read back or written never lets a
+// run pass.
 async function run(){
- const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=replayFixtures(corpus),reports=[],failures=[];
+ const corpus=JSON.parse(fs.readFileSync('live-fixtures/fixtures.json','utf8')),fixtures=replayFixtures(corpus),reports=[],failures=[],fileErrors=[];
+ const fileFailed=(what,e)=>{console.error(`Could not ${what}: ${e?.message||String(e)}`);fileErrors.push(e);};
  const server=await serve();
  try{
   for(const [i,f] of fixtures.entries()){
@@ -147,10 +161,18 @@ async function run(){
      await stopReplay(page,r);
      checkClosed(r,stepsPassed);
     }
-   },{timeout:60000});}catch(e){failures.push(e);}finally{if(fs.existsSync(`browser-artifacts/${file}`))reports.push(...JSON.parse(fs.readFileSync(`browser-artifacts/${file}`,'utf8')));}
+   },{timeout:60000});}catch(e){failures.push(e);}finally{
+    // The fixture's report, as engines() wrote it, goes into the run's: one
+    // that is not there is skipped, one that cannot be read back is printed
+    // and kept.
+    const out=`browser-artifacts/${file}`;
+    if(fs.existsSync(out)){try{reports.push(...JSON.parse(fs.readFileSync(out,'utf8')));}catch(e){fileFailed(`read back ${out}`,e);}}
+   }
   }
  // In this order: a report that cannot be written must not leave the server up.
- }finally{await server.close();fs.mkdirSync('browser-artifacts',{recursive:true});fs.writeFileSync('browser-artifacts/external-replay.json',JSON.stringify(reports,null,2));}
+ // Its failure is printed and kept, and so takes the place of no other.
+ }finally{await server.close();try{fs.mkdirSync('browser-artifacts',{recursive:true});fs.writeFileSync('browser-artifacts/external-replay.json',JSON.stringify(reports,null,2));}catch(e){fileFailed('write browser-artifacts/external-replay.json',e);}}
  if(failures.length)throw failures[0];
+ if(fileErrors.length)throw fileErrors[0];
 }
 module.exports={run,labels,replayFixtures,requireAcquisition,stopReplay,checkClosed};main(module,run);

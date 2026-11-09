@@ -188,8 +188,22 @@ async function finalAndStop(page, record) {
   }, READ_LIMIT);
   record.final = values.final; record.readsCutShort = cutShort; record.readsFailed = failed;
 }
+// The run: the two scenes in turn, each in an engines() call of its own, whose
+// report file (live-recovery-clear.json, live-recovery-race.json) is read back
+// into the run's own, live-recovery.json, written once the server has stopped.
+// A report file that cannot be read back or written (held by antivirus, an
+// indexer or OneDrive, a disk that fails, text that is not JSON) is printed at
+// once, on a line of its own, "Could not read back <file>: <its error>" or
+// "Could not write <file>: <its error>" (the error's message, or the error
+// itself as a string when it has none), and its error is kept in
+// `fileErrors`: the next scene runs as after any engine's failure, and the
+// run's report lacks the records of a file that could not be read back. The
+// run ends with the first engine's failure or, when no engine failed, with the
+// first of those errors, so that a report file that could not be read back or
+// written never lets a run pass.
 async function run() {
-  const server = await serve(), reports = [], failures = [];
+  const server = await serve(), reports = [], failures = [], fileErrors = [];
+  const fileFailed = (what, error) => { console.error(`Could not ${what}: ${error?.message || String(error)}`); fileErrors.push(error); };
   try {
     // A fresh browser process for each scene: WebKit's canvas-stream backend
     // may not restart playback after a stopped stream in the same process.
@@ -294,17 +308,28 @@ async function run() {
         }, { timeout: 60000 });
       } catch (error) { failures.push(error); }
       finally {
+        // The scene's report, as engines() wrote it, goes into the run's: one
+        // that is not there is skipped, one that cannot be read back is
+        // printed and kept.
         const filePath = `browser-artifacts/${file}`;
-        if (fs.existsSync(filePath)) reports.push(...JSON.parse(fs.readFileSync(filePath, 'utf8')));
+        if (fs.existsSync(filePath)) {
+          try { reports.push(...JSON.parse(fs.readFileSync(filePath, 'utf8'))); }
+          catch (error) { fileFailed(`read back ${filePath}`, error); }
+        }
       }
     }
     if (failures.length) throw failures[0];
   } finally {
     // In this order: a report that cannot be written must not leave the server
-    // up, which holds the run for ever.
+    // up, which holds the run for ever. Its failure is printed and kept, and so
+    // takes the place of no other: the first engine's failure, thrown above,
+    // still goes out.
     await server.close();
-    fs.mkdirSync('browser-artifacts', { recursive: true });
-    fs.writeFileSync('browser-artifacts/live-recovery.json', JSON.stringify(reports, null, 2) + '\n');
+    try {
+      fs.mkdirSync('browser-artifacts', { recursive: true });
+      fs.writeFileSync('browser-artifacts/live-recovery.json', JSON.stringify(reports, null, 2) + '\n');
+    } catch (error) { fileFailed('write browser-artifacts/live-recovery.json', error); }
   }
+  if (fileErrors.length) throw fileErrors[0];
 }
 module.exports = { run, finalAndStop }; main(module, run);
