@@ -644,7 +644,16 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       assert.equal(stdout, '', 'no server');
     });
 
-  for (const [name, prepare] of [['live_recovery', () => {}], ['external_replay', pinnedFixtures]])
+  // With browser-artifacts a file, each scene's or fixture's engines() call
+  // fails before it launches anything: at its require() of Playwright where
+  // Playwright is not installed, as in the pull-request job that runs these
+  // tests, and at its own mkdir of browser-artifacts, with EEXIST, where it
+  // is. The run's own report then cannot be written either, with EEXIST once
+  // the server has stopped: that is printed, and the run ends with the first
+  // engine's failure, an error engines() threw, which main() prints last, as
+  // its stack shows, or for Playwright's, its require stack. Until November
+  // 2026 the write's error replaced that failure.
+  for (const [name, prepare, report] of [['live_recovery', () => {}, 'live-recovery'], ['external_replay', pinnedFixtures, 'external-replay']])
     test(`${name} stops its server when it cannot write its report`, async (t) => {
       const directory = temporary(t);
       noReports(directory);
@@ -652,7 +661,9 @@ describe('what a run started does not outlive its failure', { concurrency: true 
       const { code, killed, stdout, stderr } = await scripted(`${name}_regressions`, directory);
       assert.equal(killed, false, `it ended by itself: ${stderr}`);
       assert.equal(code, 1, stderr);
-      assert.match(stderr, /EEXIST.*browser-artifacts/);
+      assert.match(stderr, new RegExp(`^Could not write browser-artifacts/${report}\\.json: EEXIST: .*browser-artifacts'$`, 'm'), 'the write\'s failure printed');
+      assert.match(stderr.split(/^(?=Error: )/m).at(-1), /^\s+at engines \(.*harness\.cjs:\d+:\d+\)$|^- .*harness\.cjs$/m,
+        `the run ends with the first engine's failure: ${stderr}`);
       assert.match(stdout, /^serving _site$/m, 'it had started its server');
     });
 

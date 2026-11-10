@@ -25,9 +25,11 @@ import { createRequire } from 'node:module';
 // (harness.cjs) and with no failure screenshot, unless the page threw an
 // uncaught error or crashed, which fails it first; live_recovery's scenes and
 // external_replay's fixtures once one engine has failed that way, or at its
-// first step; and engines that never reach those reads, with no page, a page
-// that never gets ready or a failure's screenshot that fails. Loading
-// watch.cjs or a suite needs no Playwright.
+// first step, and with a scene's or fixture's report that cannot be read
+// back, or the suite's own that cannot be written; and engines that never
+// reach those reads, with no page, a page that never gets ready or a
+// failure's screenshot that fails. Loading watch.cjs or a suite needs no
+// Playwright.
 const require = createRequire(import.meta.url);
 const { CLOSE_LIMIT, READ_LIMIT } = require('../../scripts/watch.cjs');
 const motion = require('../../scripts/live_motion_regressions.cjs');
@@ -494,10 +496,40 @@ const SUITES = {
     reads: { catch: ['status', 'state'] }, kept: { status: undefined, state: undefined }, own: true, screenshotFirst: true },
 };
 
+// What a run loads after PRELOAD when one of its report files is to fail
+// (ran()'s FILES): fs.readFileSync() throws EBUSY, as on a file that
+// antivirus, an indexer or OneDrive holds, for the file UNREADABLE names, if
+// any, and for no other; and the run says on stdout when the stand-in for
+// Python's server has stopped and when the suite writes RUN_REPORT, its run's
+// own report, so that a test sees which comes first.
+const REPORT_FILES = `const fs = require("node:fs"), path = require("node:path"), children = require("node:child_process");
+const { UNREADABLE, RUN_REPORT } = process.env, { readFileSync, writeFileSync } = fs, { spawn } = children;
+const named = (file, name) => Boolean(name) && typeof file === "string" && path.resolve(file) === path.resolve(name);
+fs.readFileSync = function (file, ...rest) {
+  if (named(file, UNREADABLE))
+    throw Object.assign(new Error("EBUSY: resource busy or locked, open '" + file + "'"), { code: "EBUSY", syscall: "open", path: file });
+  return readFileSync.call(this, file, ...rest);
+};
+fs.writeFileSync = function (file, ...rest) {
+  if (named(file, RUN_REPORT)) console.log("writes " + file);
+  return writeFileSync.call(this, file, ...rest);
+};
+children.spawn = (...args) => {
+  const child = spawn(...args);
+  child.once("exit", () => console.log("the server has stopped"));
+  return child;
+};
+`;
+
 // How `suite` ends, run as it is with PRELOAD loaded first, in a tree of its
 // own with the harness and watch.cjs as they are and PLAYWRIGHT for
 // Playwright, which is its working and temporary directory: what it printed,
-// the counts of its limits' timers and its engines' reports.
+// the counts of its limits' timers and its engines' reports, and a way to
+// read any other report it wrote (`written`, null for a file that is not
+// there). With FILES, { unreadable, folder }, REPORT_FILES is loaded after
+// PRELOAD, the file `unreadable` names cannot be read back, and with `folder`
+// a folder is where the suite's own report goes, so that it cannot be
+// written.
 async function ran(t, suite, env) {
   const { script, file, copy = [], write = {} } = SUITES[suite];
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gridpuzzle-suite-reads-'));
@@ -513,13 +545,20 @@ async function ran(t, suite, env) {
   fs.mkdirSync(inTree('node_modules/playwright'), { recursive: true });
   fs.writeFileSync(inTree('node_modules/playwright/index.js'), PLAYWRIGHT);
   fs.writeFileSync(inTree('preload.cjs'), PRELOAD);
+  const preloads = ['-r', inTree('preload.cjs')];
+  if (env.FILES) {
+    fs.writeFileSync(inTree('report-files.cjs'), REPORT_FILES);
+    preloads.push('-r', inTree('report-files.cjs'));
+    if (env.FILES.folder) fs.mkdirSync(inTree(file), { recursive: true });
+  }
   const flags = Object.fromEntries(['PLAY', 'BROWSER_HANGS', 'REFUSE', 'UNREADY', 'SHOT_FAILS'].map((flag) => [flag, env[flag] ? '1' : '']));
-  const ended = await finish(['-r', inTree('preload.cjs'), inTree(script)], { cwd: directory,
+  const ended = await finish([...preloads, inTree(script)], { cwd: directory,
     env: { ...process.env, TEMP: directory, TMP: directory, TMPDIR: directory, BROWSER_ENGINES: '', PLAN: JSON.stringify(env.PLAN),
-      EVENT: env.EVENT ?? '', PLAYED_OVER: JSON.stringify(env.PLAYED ?? {}), ...flags } });
+      EVENT: env.EVENT ?? '', PLAYED_OVER: JSON.stringify(env.PLAYED ?? {}), ...flags,
+      ...(env.FILES && { UNREADABLE: env.FILES.unreadable ?? '', RUN_REPORT: file }) } });
   const lines = ended.stdout.trim().split(/\r?\n/), limits = /^limits (.+)$/.exec(lines.at(-1));
-  const reports = fs.existsSync(inTree(file)) ? JSON.parse(fs.readFileSync(inTree(file), 'utf8')) : null;
-  return { ...ended, lines, limits: limits && JSON.parse(limits[1]), reports };
+  const written = (name) => (fs.statSync(inTree(name), { throwIfNoEntry: false })?.isFile() ? JSON.parse(fs.readFileSync(inTree(name), 'utf8')) : null);
+  return { ...ended, lines, limits: limits && JSON.parse(limits[1]), reports: written(file), written };
 }
 
 // What a report keeps of an answer: one that is undefined leaves no field in
@@ -915,6 +954,129 @@ describe('live_recovery\'s scenes and external_replay\'s fixtures, after one eng
         readsFailed.stdout);
       assert.equal(readsFailed.ended, failedFailure, readsFailed.stderr);
     });
+});
+
+// What live_recovery and external_replay do, run as they are, with a report
+// file that cannot be read back or written, as the owner chose: a scene's or
+// fixture's report, which engines() wrote, that cannot be read back (EBUSY,
+// from REPORT_FILES), or the run's own report, which cannot be written to a
+// folder (EISDIR), is printed at once, on a line of its own, and kept. The
+// next scenes or fixtures run as after any engine's failure, each engine
+// writing its report; the run's report has the records of every report read
+// back, and none for one that was not; the server stops before the run's
+// report is written; and the run ends with the first engine's failure, also
+// when it came after the file that failed, and only when no engine failed
+// with the first of those errors, a read-back's before the write's. Until
+// November 2026 a read-back that threw left the run there, with its error,
+// and a write that threw replaced the first engine's failure.
+const UNITS = {
+  live_recovery: ['browser-artifacts/live-recovery-clear.json', 'browser-artifacts/live-recovery-race.json'],
+  external_replay: [0, 1, 2].map((n) => `browser-artifacts/external-replay-${n}.json`),
+};
+// The line printed for a report file that cannot be read back, as
+// REPORT_FILES fails it, and for the run's report that goes to a folder,
+// whose error names the file as the suite gave it on Linux and by its full
+// path on Windows; and the error the run ends with in either case.
+const UNREAD = (name) => `Could not read back ${name}: EBUSY: resource busy or locked, open '${name}'`;
+const escaped = (text) => text.replace(/[.\\/]/g, '\\$&');
+const UNWRITTEN = (name) => new RegExp(`^Could not write ${escaped(name)}: EISDIR: illegal operation on a directory, open '.*${escaped(path.basename(name))}'$`);
+const UNREAD_ERROR = (name) => `Error: EBUSY: resource busy or locked, open '${name}'`;
+const UNWRITTEN_ERROR = (name) => new RegExp(`^Error: EISDIR: illegal operation on a directory, open '.*${escaped(path.basename(name))}'$`);
+
+describe('live_recovery and external_replay, run as they are, when a report file cannot be read back or written', { concurrency: true }, () => {
+  for (const [suite, unit] of [['live_recovery', 'scene'], ['external_replay', 'fixture']]) {
+    const { file, runs } = SUITES[suite], units = UNITS[suite], engines = enginesOf(runs);
+    // A run in which the launches `failing` (by their place in `engines`) fail
+    // at their first step and the others pass, with FILES `files`: how it
+    // ended, each engine's status in each scene's or fixture's report (null
+    // for a report that was never written), the run's own report, the lines
+    // printed of the report files, the lines on stderr, what the stand-in said
+    // on stdout and what the run ended with.
+    const outcome = async (t, failing, files) => {
+      const { code, killed, stdout, stderr, lines, reports, written } = await ran(t, suite,
+        { PLAN: engines.map((_, n) => ({ plan: { '*': 'answer' }, play: !failing.includes(n) })), FILES: files });
+      const errors = stderr.split(/\r?\n/);
+      return { code, killed, output: `${stdout}${stderr}`, reports, written, errors, lines,
+        statuses: units.map((name) => written(name)?.map((report) => [report.browser, report.status]) ?? null),
+        printed: errors.filter((line) => line.startsWith('Could not ')), ended: endedWith(stderr, 'Error: ') };
+    };
+    // What each scene's or fixture's report says of its engines when the
+    // launches `failing` fail, and what the run's report has when the first
+    // scene's or fixture's report could not be read back: the others'.
+    const statuses = (failing) => units.map((_, u) => ['chromium', 'webkit'].map((name, e) => [name, failing.includes(2 * u + e) ? 'failed' : 'passed']));
+    const others = (run) => units.slice(1).flatMap((name) => run.written(name) ?? [null]);
+    // The run's report is written once the server has stopped.
+    const stoppedFirst = (run) => {
+      const stopped = run.lines.indexOf('the server has stopped');
+      assert.ok(stopped >= 0 && stopped < run.lines.indexOf(`writes ${file}`), `the server stopped before the run's report was written: ${run.output}`);
+    };
+
+    test(`${suite} runs every ${unit} after the first ${unit}'s report cannot be read back, prints that, and ends with the first engine's failure`, async (t) => {
+      const run = await outcome(t, [0], { unreadable: units[0] });
+      assert.equal(run.killed, false, `it ended by itself: ${run.output}`);
+      assert.equal(run.code, 1, run.output);
+      assert.deepEqual(run.statuses, statuses([0]), `every ${unit} ran, each engine writing its report`);
+      assert.deepEqual(run.reports, others(run), 'the run\'s report has the records of the reports read back, and nothing for the one that was not');
+      assert.deepEqual(run.printed, [UNREAD(units[0])], 'the read-back\'s failure printed, once');
+      assert.equal(run.ended, 'Error: no site here', `what the run ended with: ${run.output}`);
+    });
+
+    test(`${suite} ends with the first engine's failure when it comes in a later ${unit}, after the first ${unit}'s report could not be read back`, async (t) => {
+      const run = await outcome(t, [2], { unreadable: units[0] });
+      assert.equal(run.killed, false, `it ended by itself: ${run.output}`);
+      assert.equal(run.code, 1, run.output);
+      assert.deepEqual(run.statuses, statuses([2]), `every ${unit} ran, each engine writing its report`);
+      assert.deepEqual(run.reports, others(run));
+      assert.deepEqual(run.printed, [UNREAD(units[0])]);
+      const printedAt = run.errors.indexOf(UNREAD(units[0])), failedAt = run.errors.findIndex((line) => line.startsWith('chromium Error: no site here'));
+      assert.ok(printedAt >= 0 && printedAt < failedAt, `printed at once, before the next ${unit}'s engine failed: ${run.output}`);
+      assert.equal(run.ended, 'Error: no site here', `what the run ended with: ${run.output}`);
+    });
+
+    test(`${suite} runs every ${unit} after the first ${unit}'s report cannot be read back, and with every engine passed ends with that`, async (t) => {
+      const run = await outcome(t, [], { unreadable: units[0] });
+      assert.equal(run.killed, false, `it ended by itself: ${run.output}`);
+      assert.equal(run.code, 1, run.output);
+      assert.deepEqual(run.statuses, statuses([]), `every ${unit} ran and passed`);
+      assert.deepEqual(run.reports, others(run));
+      assert.deepEqual(run.printed, [UNREAD(units[0])]);
+      assert.equal(run.ended, UNREAD_ERROR(units[0]), `what the run ended with: ${run.output}`);
+    });
+
+    test(`${suite} stops its server, prints that it cannot write its report and ends with the first engine's failure`, async (t) => {
+      const run = await outcome(t, [0], { folder: true });
+      assert.equal(run.killed, false, `it ended by itself, its server stopped: ${run.output}`);
+      assert.equal(run.code, 1, run.output);
+      assert.deepEqual(run.statuses, statuses([0]), `every ${unit} ran, each engine writing its report`);
+      assert.equal(run.reports, null, 'no report where the folder is');
+      assert.equal(run.printed.length, 1, run.output);
+      assert.match(run.printed[0], UNWRITTEN(file), 'the write\'s failure printed');
+      stoppedFirst(run);
+      assert.equal(run.ended, 'Error: no site here', `what the run ended with: ${run.output}`);
+    });
+
+    test(`${suite} stops its server, prints that it cannot write its report, and with every engine passed ends with that`, async (t) => {
+      const run = await outcome(t, [], { folder: true });
+      assert.equal(run.killed, false, `it ended by itself, its server stopped: ${run.output}`);
+      assert.equal(run.code, 1, run.output);
+      assert.deepEqual(run.statuses, statuses([]), `every ${unit} ran and passed`);
+      assert.equal(run.printed.length, 1, run.output);
+      assert.match(run.printed[0], UNWRITTEN(file));
+      stoppedFirst(run);
+      assert.match(run.ended ?? '', UNWRITTEN_ERROR(file), `what the run ended with: ${run.output}`);
+    });
+
+    test(`${suite} prints, in turn, that the first ${unit}'s report cannot be read back and that its own cannot be written, and with every engine passed ends with the first`, async (t) => {
+      const run = await outcome(t, [], { unreadable: units[0], folder: true });
+      assert.equal(run.killed, false, `it ended by itself, its server stopped: ${run.output}`);
+      assert.equal(run.code, 1, run.output);
+      assert.deepEqual(run.statuses, statuses([]), `every ${unit} ran and passed`);
+      assert.equal(run.printed.length, 2, run.output);
+      assert.equal(run.printed[0], UNREAD(units[0]));
+      assert.match(run.printed[1], UNWRITTEN(file));
+      assert.equal(run.ended, UNREAD_ERROR(units[0]), `what the run ended with: ${run.output}`);
+    });
+  }
 });
 
 // Engines that never reach the reads, so that their reports have none of the
