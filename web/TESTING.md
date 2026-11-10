@@ -426,9 +426,9 @@ the start: `harness_regressions` and `ocr_latency` read `BROWSER_ENGINES`,
 its report's folder, before they start one. Writing a report comes after the
 stop: `ocr_latency`, `live_recovery` and `external_replay` stop their server
 before they write the report that ends their run, so that a report that cannot
-be written fails the run and does not hold it; `live_recovery` and
-`external_replay` print that failure and end with the first engine's, when an
-engine failed (below). `solver_update` saves first, in
+be written fails the run and does not hold it; since November 2026
+`live_recovery` and `external_replay` print that failure and still end with the
+first engine's, when an engine failed (below). `solver_update` saves first, in
 the last step of its run, where a failure is an unhandled rejection, which ends
 the process. The stale-build check and the offline-install check inside
 `photo_read` close their context before they stop their server, through
@@ -1089,8 +1089,8 @@ of its two scenes, and `external_replay` each of its three fixtures, in an
 `engines()` call of its own, one after the other, and such an engine fails its
 scene or fixture as a failing step does: the other engine and the next scenes
 or fixtures still run, every engine's report reaches `live-recovery.json` or
-`external-replay.json`, unless its file cannot be read back (below), and the
-run ends with the first failure.
+`external-replay.json`, unless its file cannot be read back, which is printed
+and never lets the run pass (below), and the run ends with the first failure.
 `live_recovery`'s record of the scene keeps `ok`, since its checks passed,
 beside the lists that name the reads, and has no `failure` of its own, which a
 failing step gives it. A stop of `external_replay`'s that fails after a pass,
@@ -1398,11 +1398,11 @@ and exit code 1. With a folder where the run's report goes, the server stops
 before the write, the write's failure is printed, and the run ends with the
 first engine's failure, or with the write's error when every engine passed; and
 with both a report that cannot be read back and that folder, both are printed
-in turn and the run ends with the read-back's error.
-`web/tests/harness-close.test.js`, whose rows put a file where
-`browser-artifacts` goes, so that no engine starts, checks that the write's
-failure is the one line printed of the report files and that the run ends with
-the error `engines()` threw.
+in turn and the run ends with the read-back's error. The two rows of
+`web/tests/harness-close.test.js` that put a file where `browser-artifacts`
+goes, so that no engine starts, check that the write's failure is the one line
+printed of the report files and that the run ends with the error `engines()`
+threw.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
