@@ -1279,25 +1279,25 @@ does after a failed step depends on where the step failed: before `begin()` set
 answers nothing; after that, but before `begin()` made the stop, as in WebKit
 on Windows, whose canvas has no `captureStream()`, the stop itself fails, so
 that `closed` is null and `readsFailed` names it; and once `begin()` has made
-the stop, it says what the replay left, which is checked, even when the replay
-never started. Measured on Windows, in both engines, with a
-preload making the first fixture's Chromium fail in the page at its step that
-reads `externalReplay.error`, with `sabotage.cjs: the step failed`, and making
-its stop, which still stopped the replay, answer `active: true`, one run of
+the stop, it says what the replay left, which is checked, even when the
+replay never started. Measured on Windows, in both engines, with a preload
+making the first fixture's Chromium fail in the page at its step that reads
+`externalReplay.error`, with `sabotage.cjs: the step failed`, and making its
+stop, which still stopped the replay, answer `active: true`, one run of
 each at 62 to 71% CPU: as it was, that engine failed with `AssertionError
 [ERR_ASSERTION]: Expected values to be strictly equal:`, which the run ended
 with, and the step's error was in no report and printed nowhere; as it is now,
-it failed with `page.evaluate: Error: sabotage.cjs: the step failed`, which the
-run ended with, its report keeping `closed` as the stop said it and naming
-`closed: the stop must leave the replay inactive (active: true)` in
+it failed with `page.evaluate: Error: sabotage.cjs: the step failed`, which
+the run ended with, its report keeping `closed` as the stop said it and
+naming `closed: the stop must leave the replay inactive (active: true)` in
 `stepCleanupErrors`, and nothing printed an `AssertionError`. Both times the
 other two fixtures passed in Chromium, and WebKit failed at its first step in
-all three, as on Windows (above). With nothing sabotaged, in one run of each at
-47 to 88% CPU, all three fixtures passed in Chromium and failed in WebKit at
-their first step, as it was and as it is now, every report with the same fields
-in the same order; a first pair of runs, at 39 to 87% CPU, lost the second
-fixture in Chromium, as it was and as it is now, to a 60-s wait for
-`body[data-ready]`, the others as in the second pair.
+all three, as on Windows (above). With nothing sabotaged, in one run of
+each at 47 to 88% CPU, all three fixtures passed in Chromium and failed
+in WebKit at their first step, as it was and as it is now, every report
+with the same fields in the same order; a first pair of runs, at 39 to
+87% CPU, lost the second fixture in Chromium, as it was and as it is now,
+to a 60-s wait for `body[data-ready]`, the others as in the second pair.
 `web/tests/suite-reads.test.js` runs `checkClosed()` on its own, after a failed
 step and after a passed one, with a stop that says it left the replay running,
 a source retained, scratch pixels or all three, one that answers with none of

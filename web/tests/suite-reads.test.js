@@ -731,12 +731,12 @@ const endedWith = (stderr, start) => [...stderr.matchAll(new RegExp(`^${start}.*
 // What external_replay's finally does with what its stop says it left
 // (checkClosed()), run as it is: after a step's own failure each engine of
 // each fixture fails with that step's error, printed as any engine's failure
-// is and the one the run ends with, whatever the stop said, and its report
-// keeps what the stop said and names each check that failed in
-// stepCleanupErrors, which nothing prints; after steps that passed the first
-// check that failed fails the engine with its own error, through engines()'
-// catch, which asks for the failure's screenshot, as it always did, the
-// report naming the checks as after a failure. A stop that answers nothing
+// is and, when it comes first, the one the run ends with, whatever the stop
+// said, and its report keeps what the stop said and names each check that
+// failed in stepCleanupErrors, which nothing prints; after steps that passed
+// the first check that failed fails the engine with its own error, through
+// engines()' catch, which asks for the failure's screenshot, as it always did,
+// the report naming the checks as after a failure. A stop that answers nothing
 // is not checked. In every row each engine asks for the stop once, with one
 // READ_LIMIT, before the failure's screenshot, when it failed, and the close.
 describe('external_replay\'s checks of what its stop says it left, run as it is', { concurrency: true }, () => {
