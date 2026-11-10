@@ -1337,46 +1337,47 @@ run then ending with that check's failure, the first, which is all that is
 printed of the checks.
 
 Until November 2026 a report file that `live_recovery` or `external_replay`
-could not read back or write took the place of the run's first failure. Each
-scene of `live_recovery`, and each fixture of `external_replay`, runs in an
-`engines()` call of its own, whose report file (`live-recovery-clear.json` and
-`live-recovery-race.json`, or `external-replay-0.json` to
-`external-replay-2.json`) the suite reads back, in the `finally` of that call's
-`try`, into the run's own report (`live-recovery.json` or
-`external-replay.json`), which it writes once its server has stopped. A
-read-back that threw there, on a file that antivirus, an indexer or OneDrive
-held, on a disk that failed or on text that was not JSON, left the loop: the
-later scenes or fixtures never ran, and the run ended with that error. A write
-that threw, in the `finally` that stops the server, replaced what the `try` had
-thrown in `live_recovery`, and in `external_replay` came before the line that
-throws the first failure, so that the run ended with the write's error and not
-with the first engine's failure, which `engines()` had printed and kept in the
-scene's or fixture's report. As the owner chose, the first failure is what
-these two runs end with now. A report file that cannot be read back or written
-is printed at once, on a line of its own, `Could not read back <file>: <its
-error>` or `Could not write <file>: <its error>` (the error's message, or the
-error itself as a string when it has none), and its error is kept. After a
-read-back that fails, the next scene or fixture runs, as after any engine's
-failure, and the run's report has the records of every report read back and
-none for the one that was not; a report file that is not there is skipped, as
-before. The server still stops before the run's report is written, so that a
-report that cannot be written does not hold the run. The run then ends with the
-first engine's failure, also when that came after the file's, and only when no
-engine failed with the first of the files' errors, a read-back's before the
-write's, so that a report file that could not be read back or written never
-lets a run pass. Nothing else changes: with every file read back and written,
-the reports and the run's end are as they were, and so are the other suites and
-the write of an engine's report in `engines()`. Measured on Windows, in both
+could not read back or write took the place of the run's first failure.
+Each scene of `live_recovery`, and each fixture of `external_replay`, runs
+in an `engines()` call of its own, which writes the scene's or fixture's
+report file (`live-recovery-clear.json` and `live-recovery-race.json`,
+or `external-replay-0.json` to `external-replay-2.json`); the suite reads
+it back, in the `finally` of that call's `try`, into the run's own report
+(`live-recovery.json` or `external-replay.json`), which it writes once its
+server has stopped. A read-back that threw there, on a file that antivirus, an
+indexer or OneDrive held, on a disk that failed or on text that was not JSON,
+left the loop: the later scenes or fixtures never ran, and the run ended with
+that error. A write that threw, in the `finally` that stops the server,
+replaced what the `try` had thrown in `live_recovery`, and in `external_replay`
+came before the line that throws the first failure, so that the run ended with
+the write's error and not with the first engine's failure, which `engines()`
+had printed and kept in the scene's or fixture's report. As the owner chose,
+the first failure is what these two runs end with now. A report file that
+cannot be read back or written is printed at once, on a line of its own, `Could
+not read back <file>: <its error>` or `Could not write <file>: <its error>`
+(the error's message, or the error itself as a string when it has none), and
+its error is kept. After a read-back that fails, the next scene or fixture
+runs, as after any engine's failure, and the run's report has the records of
+every report read back and none for the one that was not; a report file
+that is not there is skipped, as before. The server still stops before
+the run's report is written, so that a report that cannot be written does
+not hold the run. The run then ends with the first engine's failure, also
+when that came after the file's, and only when no engine failed with the
+first of the files' errors, a read-back's before the write's, so that a
+report file that could not be read back or written never lets a run pass.
+Nothing else changes: with every file read back and written, the reports
+and the run's end are as they were, and so are the other suites and the
+write of an engine's report in `engines()`. Measured on Windows, in both
 engines, where WebKit fails every scene and fixture at its first step (above),
-one run of each at 98 to 100% CPU: with a preload making the read-back of the
-first scene's or fixture's report throw `EBUSY`, each suite as it was ran that
-scene or fixture alone, wrote an empty run report and ended with `Error: EBUSY:
-resource busy or locked`, and as it is now ran them all, printed `Could not
-read back browser-artifacts/live-recovery-clear.json: EBUSY: …` (or
-`…/external-replay-0.json: …`), wrote the later ones' records to the run's
-report and ended with WebKit's failure in the first; with a folder where the
-run's report goes, each as it was ended with `Error: EISDIR: illegal operation
-on a directory`, and as it is now printed `Could not write
+one run of each at 98 to 100% CPU: with a preload making the read-back
+of the first scene's or fixture's report throw `EBUSY`, each suite as it
+was ran that scene or fixture alone, wrote an empty run report and ended
+with `Error: EBUSY: resource busy or locked`, and as it is now ran them
+all, printed `Could not read back browser-artifacts/live-recovery-clear.json:
+EBUSY: …` (or `…/external-replay-0.json: …`), wrote the later ones' records
+to the run's report and ended with WebKit's failure in the first; with
+a folder where the run's report goes, each as it was ended with `Error: EISDIR:
+illegal operation on a directory`, and as it is now printed `Could not write
 browser-artifacts/live-recovery.json: EISDIR: …` (or `…/external-replay.json:
 …`) and ended with that failure of WebKit's, the server having exited before
 the write in all four. With nothing in the way, in one run of each at 97 to
@@ -1384,21 +1385,29 @@ the write in all four. With nothing in the way, in one run of each at 97 to
 and as it is now; three other runs of `external_replay` as it was lost the
 third fixture in Chromium to a 60-s wait for `body[data-ready]`, which comes
 before its steps. `web/tests/suite-reads.test.js` runs both suites as they are
-on its stand-in for Playwright, with a second preload that makes the read of
-one report file throw `EBUSY`, or return text that is not JSON, and that says
-when the stand-in for the server has stopped and when the run's report is
-written. With the first scene's or fixture's report unreadable and its Chromium
-failing, every scene or fixture runs, each engine writing its report, the line
-is printed once, the run's report has the others' records, and the run ends
-with that engine's failure; so it does when the engine that fails is a later
-scene's or fixture's, the line printed before that engine fails; a report that
-reads back as text that is not JSON is printed with `JSON.parse()`'s own
-message; and with every engine passing the run ends with the read-back's error
-and exit code 1. With a folder where the run's report goes, the server stops
-before the write, the write's failure is printed, and the run ends with the
-first engine's failure, or with the write's error when every engine passed; and
-with both a report that cannot be read back and that folder, both are printed
-in turn and the run ends with the read-back's error. The two rows of
+on its stand-in for Playwright, with a second preload that makes the read of a
+report file throw `EBUSY`, throw a string or null, which have no message, or
+return text that is not JSON, and that says when the stand-in for the server
+has stopped and when the run's report is written. With the first scene's or
+fixture's report unreadable and its Chromium failing, every scene or fixture
+runs, each engine writing its report, the line is printed once, the run's
+report has the others' records, and the run ends with that engine's failure; so
+it does when the engine that fails is a later scene's or fixture's, the
+line printed before that engine fails; when two engines fail, each in a
+scene or fixture of its own and with its own error, the run ends with the
+first's; a report that reads back as text that is not JSON is printed with
+`JSON.parse()`'s own message; and with every engine passing the run ends with
+the read-back's error and exit code 1. So it does with the last scene's or
+fixture's report unreadable, the run's report keeping the records read back
+before it; with the first one's not JSON and the last one's unreadable, each is
+printed in turn, every scene or fixture having run, and the run ends with the
+first of the two errors; and what a read-back throws with no message, a
+string or null, is printed as a string, and the run ends with it, with
+exit code 1. With a folder where the run's report goes, the server stops
+before the write, the write's failure is printed, and the run ends with
+the first engine's failure, or with the write's error when every engine passed;
+and with both a report that cannot be read back and that folder, both are
+printed in turn and the run ends with the read-back's error. The two rows of
 `web/tests/harness-close.test.js` that put a file where `browser-artifacts`
 goes, so that no engine starts, check that the write's failure is the one line
 printed of the report files and that the run ends with the error `engines()`
