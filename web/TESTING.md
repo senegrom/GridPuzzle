@@ -426,7 +426,9 @@ the start: `harness_regressions` and `ocr_latency` read `BROWSER_ENGINES`,
 its report's folder, before they start one. Writing a report comes after the
 stop: `ocr_latency`, `live_recovery` and `external_replay` stop their server
 before they write the report that ends their run, so that a report that cannot
-be written fails the run and does not hold it. `solver_update` saves first, in
+be written fails the run and does not hold it; since November 2026
+`live_recovery` and `external_replay` print that failure and still end with the
+first engine's, when an engine failed (below). `solver_update` saves first, in
 the last step of its run, where a failure is an unhandled rejection, which ends
 the process. The stale-build check and the offline-install check inside
 `photo_read` close their context before they stop their server, through
@@ -1087,7 +1089,8 @@ of its two scenes, and `external_replay` each of its three fixtures, in an
 `engines()` call of its own, one after the other, and such an engine fails its
 scene or fixture as a failing step does: the other engine and the next scenes
 or fixtures still run, every engine's report reaches `live-recovery.json` or
-`external-replay.json`, and the run ends with the first failure.
+`external-replay.json`, unless its file cannot be read back, which is printed
+and never lets the run pass (below), and the run ends with the first failure.
 `live_recovery`'s record of the scene keeps `ok`, since its checks passed,
 beside the lists that name the reads, and has no `failure` of its own, which a
 failing step gives it. A stop of `external_replay`'s that fails after a pass,
@@ -1279,25 +1282,25 @@ does after a failed step depends on where the step failed: before `begin()` set
 answers nothing; after that, but before `begin()` made the stop, as in WebKit
 on Windows, whose canvas has no `captureStream()`, the stop itself fails, so
 that `closed` is null and `readsFailed` names it; and once `begin()` has made
-the stop, it says what the replay left, which is checked, even when the replay
-never started. Measured on Windows, in both engines, with a
-preload making the first fixture's Chromium fail in the page at its step that
-reads `externalReplay.error`, with `sabotage.cjs: the step failed`, and making
-its stop, which still stopped the replay, answer `active: true`, one run of
+the stop, it says what the replay left, which is checked, even when the
+replay never started. Measured on Windows, in both engines, with a preload
+making the first fixture's Chromium fail in the page at its step that reads
+`externalReplay.error`, with `sabotage.cjs: the step failed`, and making its
+stop, which still stopped the replay, answer `active: true`, one run of
 each at 62 to 71% CPU: as it was, that engine failed with `AssertionError
 [ERR_ASSERTION]: Expected values to be strictly equal:`, which the run ended
 with, and the step's error was in no report and printed nowhere; as it is now,
-it failed with `page.evaluate: Error: sabotage.cjs: the step failed`, which the
-run ended with, its report keeping `closed` as the stop said it and naming
-`closed: the stop must leave the replay inactive (active: true)` in
+it failed with `page.evaluate: Error: sabotage.cjs: the step failed`, which
+the run ended with, its report keeping `closed` as the stop said it and
+naming `closed: the stop must leave the replay inactive (active: true)` in
 `stepCleanupErrors`, and nothing printed an `AssertionError`. Both times the
 other two fixtures passed in Chromium, and WebKit failed at its first step in
-all three, as on Windows (above). With nothing sabotaged, in one run of each at
-47 to 88% CPU, all three fixtures passed in Chromium and failed in WebKit at
-their first step, as it was and as it is now, every report with the same fields
-in the same order; a first pair of runs, at 39 to 87% CPU, lost the second
-fixture in Chromium, as it was and as it is now, to a 60-s wait for
-`body[data-ready]`, the others as in the second pair.
+all three, as on Windows (above). With nothing sabotaged, in one run of
+each at 47 to 88% CPU, all three fixtures passed in Chromium and failed
+in WebKit at their first step, as it was and as it is now, every report
+with the same fields in the same order; a first pair of runs, at 39 to
+87% CPU, lost the second fixture in Chromium, as it was and as it is now,
+to a 60-s wait for `body[data-ready]`, the others as in the second pair.
 `web/tests/suite-reads.test.js` runs `checkClosed()` on its own, after a failed
 step and after a passed one, with a stop that says it left the replay running,
 a source retained, scratch pixels or all three, one that answers with none of
@@ -1332,6 +1335,83 @@ fixture's Chromium passed its steps and then failed on the check, and the third
 fixture's Chromium, after the same browser's steps passed in the first two, the
 run then ending with that check's failure, the first, which is all that is
 printed of the checks.
+
+Until November 2026 a report file that `live_recovery` or `external_replay`
+could not read back or write took the place of the run's first failure.
+Each scene of `live_recovery`, and each fixture of `external_replay`, runs
+in an `engines()` call of its own, which writes the scene's or fixture's
+report file (`live-recovery-clear.json` and `live-recovery-race.json`,
+or `external-replay-0.json` to `external-replay-2.json`); the suite reads
+it back, in the `finally` of that call's `try`, into the run's own report
+(`live-recovery.json` or `external-replay.json`), which it writes once its
+server has stopped. A read-back that threw there, on a file that antivirus, an
+indexer or OneDrive held, on a disk that failed or on text that was not JSON,
+left the loop: the later scenes or fixtures never ran, and the run ended with
+that error. A write that threw, in the `finally` that stops the server,
+replaced what the `try` had thrown in `live_recovery`, and in `external_replay`
+came before the line that throws the first failure, so that the run ended with
+the write's error and not with the first engine's failure, which `engines()`
+had printed and kept in the scene's or fixture's report. As the owner chose,
+the first failure is what these two runs end with now. A report file that
+cannot be read back or written is printed at once, on a line of its own, `Could
+not read back <file>: <its error>` or `Could not write <file>: <its error>`
+(the error's message, or the error itself as a string when it has none), and
+its error is kept. After a read-back that fails, the next scene or fixture
+runs, as after any engine's failure, and the run's report has the records of
+every report read back and none for the one that was not; a report file
+that is not there is skipped, as before. The server still stops before
+the run's report is written, so that a report that cannot be written does
+not hold the run. The run then ends with the first engine's failure, also
+when that came after the file's, and only when no engine failed with the
+first of the files' errors, a read-back's before the write's, so that a
+report file that could not be read back or written never lets a run pass.
+Nothing else changes: with every file read back and written, the reports
+and the run's end are as they were, and so are the other suites and the
+write of an engine's report in `engines()`. Measured on Windows, in both
+engines, where WebKit fails every scene and fixture at its first step (above),
+one run of each at 98 to 100% CPU: with a preload making the read-back
+of the first scene's or fixture's report throw `EBUSY`, each suite as it
+was ran that scene or fixture alone, wrote an empty run report and ended
+with `Error: EBUSY: resource busy or locked`, and as it is now ran them
+all, printed `Could not read back browser-artifacts/live-recovery-clear.json:
+EBUSY: …` (or `…/external-replay-0.json: …`), wrote the later ones' records
+to the run's report and ended with WebKit's failure in the first; with
+a folder where the run's report goes, each as it was ended with `Error: EISDIR:
+illegal operation on a directory`, and as it is now printed `Could not write
+browser-artifacts/live-recovery.json: EISDIR: …` (or `…/external-replay.json:
+…`) and ended with that failure of WebKit's, the server having exited before
+the write in all four. With nothing in the way, in one run of each at 97 to
+100% CPU, each suite's reports had the same fields in the same order as it was
+and as it is now; three other runs of `external_replay` as it was lost the
+third fixture in Chromium to a 60-s wait for `body[data-ready]`, which comes
+before its steps. `web/tests/suite-reads.test.js` runs both suites as they are
+on its stand-in for Playwright, with a second preload that makes the read of a
+report file throw `EBUSY`, throw a string or null, which have no message, or
+return text that is not JSON, and that says when the stand-in for the server
+has stopped and when the run's report is written. With the first scene's or
+fixture's report unreadable and its Chromium failing, every scene or fixture
+runs, each engine writing its report, the line is printed once, the run's
+report has the others' records, and the run ends with that engine's failure; so
+it does when the engine that fails is a later scene's or fixture's, the
+line printed before that engine fails; when two engines fail, each in a
+scene or fixture of its own and with its own error, the run ends with the
+first's; a report that reads back as text that is not JSON is printed with
+`JSON.parse()`'s own message; and with every engine passing the run ends with
+the read-back's error and exit code 1. So it does with the last scene's or
+fixture's report unreadable, the run's report keeping the records read back
+before it; with the first one's not JSON and the last one's unreadable, each is
+printed in turn, every scene or fixture having run, and the run ends with the
+first of the two errors; and what a read-back throws with no message, a
+string or null, is printed as a string, and the run ends with it, with
+exit code 1. With a folder where the run's report goes, the server stops
+before the write, the write's failure is printed, and the run ends with
+the first engine's failure, or with the write's error when every engine passed;
+and with both a report that cannot be read back and that folder, both are
+printed in turn and the run ends with the read-back's error. The two rows of
+`web/tests/harness-close.test.js` that put a file where `browser-artifacts`
+goes, so that no engine starts, check that the write's failure is the one line
+printed of the report files and that the run ends with the error `engines()`
+threw.
 
 The offline smoke suite asks `serve()` for a fixed port (8765), since it
 stops and restarts its origin and the service worker's cache must still belong
