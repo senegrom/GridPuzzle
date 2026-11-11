@@ -984,8 +984,8 @@ for (const turn of [null, "sideways"])
 // A status set while the Read waits by something that does not stop it (app.js
 // answers a Play tap on a clue cell that way, run here as it is) replaces the
 // answer: the elapsed time then replaces that status's second line, as any
-// status's, and the Read still follows the detection. The tap has set Editing
-// to Play, so that Read's clear reading is not solved automatically. A stop
+// status's, and the Read still follows the detection. Editing is set to Play
+// for that tap, so that Read's clear reading is not solved automatically. A stop
 // without a status or Hide photo leaves that status as it is, since no
 // answer is on screen to take back.
 const CLUE = ["That cell holds a printed clue.", "Pick a blank cell for your answer, or switch Editing to Clues to change the clue."];
