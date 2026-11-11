@@ -237,16 +237,21 @@ async function waiting(h, detection) {
   h.running();
 }
 // The board after a Read through the corners a confident detection found: the
-// reader's own review (none here), solved automatically.
-function readThroughGrid(h) {
+// reader's own review (none here), solved automatically, unless Editing is
+// set to Play (`playing`): the clear reading then waits, and the status says
+// why nothing was solved (photo-flow.js readPhoto).
+function readThroughGrid(h, { playing = false } = {}) {
   assert.equal(h.reads.length, 1);
   assert.deepEqual(h.reads[0].corners, GRID);
   assert.deepEqual([h.reads[0].type, h.reads[0].rows, h.reads[0].cols], ["latinsquare", 4, 4]);
   assert.equal(h.state.puzzle.cells[0], 1);
   assert.deepEqual([...h.state.uncertain], []); assert.equal(h.state.needsReview, false);
   assert.deepEqual(h.state.notes, []);
-  assert.equal(h.solves, 1, "a clean Read solves automatically, as after a tapped Read");
+  if (playing) assert.equal(h.solves, 0, "a clean Read is not solved automatically while Editing is set to Play");
+  else assert.equal(h.solves, 1, "a clean Read solves automatically, as after a tapped Read");
   assert.equal(h.status, "Puzzle read.");
+  assert.equal(/^Latin square\. Not solved automatically while Editing is set to Play: /.test(h.statuses.at(-1)[1]), playing,
+    "the status speaks of Play exactly when Play held the solve back");
   h.ended();
 }
 // The board after a Read through a crop nobody confirmed: every cell under
@@ -979,9 +984,10 @@ for (const turn of [null, "sideways"])
 // A status set while the Read waits by something that does not stop it (app.js
 // answers a Play tap on a clue cell that way, run here as it is) replaces the
 // answer: the elapsed time then replaces that status's second line, as any
-// status's, and the Read still follows the detection. A stop without a
-// status or Hide photo leaves that status as it is, since no answer is on
-// screen to take back.
+// status's, and the Read still follows the detection. Editing is set to Play
+// for that tap, so that Read's clear reading is not solved automatically. A stop
+// without a status or Hide photo leaves that status as it is, since no
+// answer is on screen to take back.
 const CLUE = ["That cell holds a printed clue.", "Pick a blank cell for your answer, or switch Editing to Clues to change the clue."];
 test("on screen, a status set while the Read waits (a Play tap on a clue cell) replaces the answer, its elapsed time alone, and the Read still follows the detection", async (t) => {
   const h = harness(t), s = screen(t, h), { imported, detection } = await h.photograph();
@@ -996,7 +1002,7 @@ test("on screen, a status set while the Read waits (a Play tap on a clue cell) r
   h.running(); assert.equal(h.reads.length, 0);
   detection.resolve(found()); await imported; await settle();
   leadIn(h, FOUND_LINE);
-  readThroughGrid(h);
+  readThroughGrid(h, { playing: true });
 });
 for (const [what, drop] of [["a stop without a status", (h) => h.tasks.stop()], ["Hide photo", (h) => h.$("hide-photo").onclick()]])
   test(`on screen, ${what} leaves a status set while the Read waited as it is`, async (t) => {

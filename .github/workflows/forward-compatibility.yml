@@ -19,15 +19,20 @@ env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PYTHONHASHSEED: random
   PYTHONUNBUFFERED: "1"
-  # Warnings are errors. Two filters come after the categories: an import
+  # Warnings are errors. Three filters come after the categories: an import
   # that re-enables the GIL on the free-threaded build fails too, where
-  # Python only warns; and Python 3.15's linecache warning that module
+  # Python only warns; Python 3.15's linecache warning that module
   # globals lack __spec__.loader is ignored. Python itself creates such
   # globals for the __mp_main__ module of a spawned worker, so formatting a
   # traceback through a worker function defined in a script's __main__
   # killed the worker and turned the two process-failure probes'
-  # deliberate errors into BrokenProcessPool.
-  PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning,error:The global interpreter lock (GIL) has been enabled:RuntimeWarning,ignore:Module globals is missing a __spec__.loader:DeprecationWarning"
+  # deliberate errors into BrokenProcessPool. The third ignores Python
+  # 3.16's deprecation of typing.AnyStr where _pytest.capture imports it,
+  # as pytest 9.2.0 does; without it pytest cannot start. typing warns only
+  # at the first import of AnyStr, so outside pytest, as in gridpuzzle
+  # --help, an import of it anywhere else still fails. Drop the filter once
+  # a pytest release no longer imports AnyStr.
+  PYTHONWARNINGS: "error::DeprecationWarning,error::PendingDeprecationWarning,error::ResourceWarning,error::SyntaxWarning,error:The global interpreter lock (GIL) has been enabled:RuntimeWarning,ignore:Module globals is missing a __spec__.loader:DeprecationWarning,ignore:'typing.AnyStr' is deprecated:DeprecationWarning:_pytest.capture"
 
 jobs:
   changes:
@@ -79,6 +84,12 @@ jobs:
             python-version: "3.15"
             freethreaded: false
             allow-prereleases: false
+          # 3.16 has no final release yet, so this leg allows prereleases and
+          # setup-python installs the newest 3.16 alpha, beta or candidate.
+          - label: Python 3.16 prerelease
+            python-version: "3.16"
+            freethreaded: false
+            allow-prereleases: true
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

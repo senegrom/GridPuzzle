@@ -122,7 +122,8 @@ also with a corner of it moved, reads the page upright and adds no note; once
 a detection or Undo brings back a crop in the picture's own frame, a Read that
 leaves it the way it lies adds it again.
 These are notes only: they change no highlight, flag or reading, so a Read
-whose reading has nothing to review still solves automatically, and like
+whose reading has nothing to review still solves automatically (unless
+Editing is set to Play: [README.md](README.md)), and like
 every note they show only while the board waits for review ("Live captures"
 in [OCR_QUALITY.md](OCR_QUALITY.md) has the measurements). If the
 detected grid contradicts the selected rules (a 9 × 6 board while Sudoku is

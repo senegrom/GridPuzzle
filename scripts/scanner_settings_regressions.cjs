@@ -74,6 +74,29 @@ async function exercise(page, base) {
   const first = await solved(page);
   assert.deepEqual([first.puzzle.boxRows, first.puzzle.boxCols], [3, 2]);
 
+  // While Editing is set to Play a clear reading is not solved for the user,
+  // which would show the solution and end Play: the board waits, Play stays
+  // on, in the saved preference too, and the status names Reveal solution.
+  await page.selectOption("#edit-tool", "play");
+  await photograph(page, image, "read-in-play");
+  await page.click("#read-photo");
+  await page.waitForFunction(() => !settingsApp.getState().busy &&
+    /^(Puzzle read\.|Solved|More than one|No solution)/.test(document.getElementById("status-text").textContent));
+  const played = await page.evaluate(() => ({ ...settingsApp.getState(),
+    text: document.getElementById("status-text").textContent, detail: document.getElementById("status-detail").textContent,
+    editing: document.getElementById("edit-tool").value, label: document.getElementById("solve-label").textContent,
+    saved: JSON.parse(localStorage.getItem("gridpuzzle-settings-v2")).editing }));
+  assert.equal(played.text, "Puzzle read.");
+  assert.equal(played.detail, "Sudoku. Not solved automatically while Editing is set to Play: enter your answers, or tap Reveal solution.");
+  assert.equal(played.result, null);
+  assert.equal(played.needsReview, false);
+  assert.deepEqual([played.editing, played.saved, played.label], ["play", "play", "Reveal solution"]);
+  // Reveal solution is then the one tap that shows it: the solve runs as for
+  // any other board, and ends Play.
+  await page.click("#solve");
+  await solved(page);
+  assert.equal(await page.inputValue("#edit-tool"), "value");
+
   // Rotate turns the photograph, not the printed puzzle: the box controls keep
   // its 3 × 2 boxes, and the reading, upright, is solved with them again.
   await page.click("#show-crop");
