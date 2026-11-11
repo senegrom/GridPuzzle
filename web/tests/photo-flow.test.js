@@ -207,6 +207,71 @@ test("hiding the page keeps a captured still on screen but releases a live camer
   assert.equal(h.track.stopped, 2);
 });
 
+// A page hidden releases the camera, and the status must not go on speaking
+// of one: "Opening camera…" over the permission prompt of an opening the hide
+// has retired, or "Camera ready." over a preview that has closed.
+const NOT_OPENED = ["Camera not opened.", "The app went to the background before the camera opened. Tap Scan with camera to try again."],
+  CLOSED_HIDDEN = ["Camera closed.", "It was turned off while the app was in the background. Your puzzle and saved pictures are unchanged."];
+for (const answer of ["allowed", "refused"]) test(`a page hidden while the browser asks for the camera says that it was not opened, also once the prompt is ${answer}`, async (t) => {
+  const h = await cameraHarness(t), asked = h.holdRequests();
+  const opening = h.$("camera").onclick();
+  await tick();
+  assert.deepEqual(h.statuses.at(-1), ["Opening camera…", "Please allow camera access."]);
+  h.hide();
+  assert.deepEqual(h.statuses.at(-1), NOT_OPENED);
+  // The prompt is answered after all: that camera stays unopened, its stream
+  // released, and the line stands.
+  if (answer === "refused") h.refuse(new DOMException("Denied", "NotAllowedError"));
+  asked.resolve(); await opening;
+  assert.equal(h.track.stopped, answer === "allowed" ? 1 : 0);
+  assert.equal(h.$("camera-panel").hidden, true);
+  assert.equal(h.liveStarted, 0);
+  assert.deepEqual(h.statuses.at(-1), NOT_OPENED);
+});
+test("a page hidden with the live camera open says that the camera was closed", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick();
+  assert.equal(h.liveStarted, 1);
+  assert.equal(h.statuses.at(-1)[0], "Camera ready.");
+  h.hide();
+  assert.equal(h.$("camera-panel").hidden, true);
+  assert.deepEqual(h.statuses.at(-1), CLOSED_HIDDEN);
+  // An opening that has ended is not what a later hide speaks of.
+  const told = h.statuses.length;
+  h.hide();
+  assert.equal(h.statuses.length, told, "nothing more to say with no camera open");
+});
+test("a page hidden with no camera open or opening leaves the status alone", async (t) => {
+  const h = await cameraHarness(t);
+  h.hide();
+  assert.deepEqual(h.statuses, []);
+  await h.$("camera").onclick();
+  h.$("close-camera").onclick();
+  const closed = h.statuses.length;
+  assert.deepEqual(h.statuses.at(-1), ["Camera closed.", "Your puzzle and saved pictures are unchanged."]);
+  h.hide();
+  assert.equal(h.statuses.length, closed);
+});
+test("a captured still keeps the status it has when the page is hidden", async (t) => {
+  const h = await cameraHarness(t, { capture: stillPicture() });
+  await h.$("camera").onclick();
+  await h.$("take-photo").onclick(); await tick();
+  const kept = h.statuses.length;
+  h.hide();
+  assert.equal(h.statuses.length, kept, "a still on screen is not a camera that closed");
+  assert.equal(h.$("camera-panel").hidden, false);
+});
+test("a frozen solution says in the camera's help line, not in the status, that its camera was turned off", async (t) => {
+  const h = await cameraHarness(t);
+  await h.$("camera").onclick();
+  h.live.freeze();
+  const before = h.statuses.length;
+  h.hide();
+  assert.equal(h.statuses.length, before);
+  assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
+  assert.equal(h.$("camera-panel").hidden, false);
+});
+
 test("track-ended listeners are attached before playback is awaited", async (t) => {
   const playback = deferred();
   const h = await cameraHarness(t, { play: () => playback.promise });

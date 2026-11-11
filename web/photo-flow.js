@@ -80,6 +80,10 @@ export function setupPhotoFlow({
     // the corners it brings back.
     cropTurns = 0,
     live = null,
+    // The opening (its cameraEpoch) that is waiting for the browser to hand
+    // the camera over, behind the permission prompt as a rule: the status
+    // says "Opening camera…" meanwhile (openCamera).
+    asking = null,
     pendingPlayback = null,
     playbackTimer = null,
     captured = null,
@@ -424,7 +428,10 @@ export function setupPhotoFlow({
       if (!navigator.mediaDevices?.getUserMedia)
         throw Error("Live camera access needs HTTPS and a compatible browser.");
       status("Opening camera…", "Please allow camera access.");
-      const acquired = await navigator.mediaDevices.getUserMedia(CONSTRAINTS);
+      asking = epoch;
+      let acquired;
+      try { acquired = await navigator.mediaDevices.getUserMedia(CONSTRAINTS); }
+      finally { if (asking === epoch) asking = null; }
       if (epoch !== cameraEpoch) {
         acquired.getTracks().forEach((t) => t.stop());
         return;
@@ -1434,7 +1441,17 @@ export function setupPhotoFlow({
     // Release the camera when the page is hidden. A captured still holds no
     // camera resource, and its review path must survive an app switch, the
     // lock screen or a download prompt.
-    if (!(captured && !stream && !live)) stopCamera();
+    if (captured && !stream && !live) return;
+    // The status would go on speaking of a camera that is gone: "Opening
+    // camera…" over the permission prompt of an opening this stop retires
+    // (whatever the prompt is answered later, that camera is not opened), or
+    // "Camera ready." over a preview that has closed. It says what happened.
+    const prompted = asking === cameraEpoch, open = Boolean(stream);
+    stopCamera();
+    if (prompted) status("Camera not opened.",
+      "The app went to the background before the camera opened. Tap Scan with camera to try again.");
+    else if (open) status("Camera closed.",
+      "It was turned off while the app was in the background. Your puzzle and saved pictures are unchanged.");
   });
 
   return { stopCamera, taskStopped, boardLoaded };

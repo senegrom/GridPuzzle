@@ -422,9 +422,13 @@ which is why scanning discards that first frame too. Capture revalidates first, 
 capture never accepts the clues or rules for the user. The camera stops and
 the picture stays on the same screen, also when the page is hidden meanwhile
 (an app switch, the lock screen, a download prompt): only a live camera is
-released on hide, and a captured still holds no camera. Escape closes the
-camera panel like a dialog, also from the frozen view, and returns focus to
-the Scan button.
+released on hide, and a captured still holds no camera. The page's status
+then says so, "Camera closed." with "It was turned off while the app was in
+the background.", or, when the hide came while the browser was still asking
+for the camera, "Camera not opened." with what to tap to try again; until
+November 2026 it went on saying "Camera ready." or "Opening camera…". Escape
+closes the camera panel like a dialog, also from the frozen view, and returns
+focus to the Scan button.
 
 The latest captured PNG is saved as exact bytes in this browser's IndexedDB,
 also on WebKit backends that cannot store Blob objects, and appears under
