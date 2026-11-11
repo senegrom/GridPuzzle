@@ -209,11 +209,12 @@ function viewHarness() {
     selected: [], photo: {}, corners: [], rectified: {}, puzzleSource: 7, photoSource: 7,
     photoRows: 4, photoCols: 4, view: "photo", play: [], result: { solutions: [{ cells: [] }, { cells: [] }] } };
   let overlays = 0, exports = 0;
+  const statuses = [], downloads = [];
   $("solution-photo").toBlob = () => exports++;
   $("edit-tool").value = "value";
   const context = vm.createContext({ ...model, $, state, setLayout() {}, typeControl() {},
-    reviewCells: () => state.uncertain, drawBoard() {}, stopTask() {}, status() {},
-    drawOverlay: () => overlays++, download() {}, renderedJson: "" });
+    reviewCells: () => state.uncertain, drawBoard() {}, stopTask() {}, status: (...lines) => statuses.push(lines),
+    drawOverlay: () => overlays++, download() {}, downloadBlob: (...args) => downloads.push(args), renderedJson: "" });
   vm.runInContext([
     section("function playMode()", "function openPlayCell("),
     section("function canOverlay()", "function clearPhotoMapping("),
@@ -223,8 +224,26 @@ function viewHarness() {
     section('$("save-photo").onclick =', '$("import-json").onclick ='),
     "globalThis.api = { render, canOverlay };",
   ].join("\n"), context);
-  return { $, state, ...context.api, counts: () => ({ overlays, exports }) };
+  return { $, state, statuses, downloads, ...context.api, counts: () => ({ overlays, exports }) };
 }
+
+// Save overlay hands the canvas to the browser to encode. A canvas it cannot
+// encode, for lack of memory as a rule, gives no blob: the tap then says so,
+// where it used to do nothing at all.
+test("Save overlay says so when the browser gives no picture, and saves the one it gives", () => {
+  const h = viewHarness(); h.render();
+  assert.deepEqual(h.statuses, []);
+  h.$("solution-photo").toBlob = (done) => done(null);
+  h.$("save-photo").onclick();
+  assert.deepEqual(h.downloads, []);
+  assert.deepEqual(h.statuses, [["Could not save the overlay.",
+    "The browser could not make the picture, usually for lack of memory. Close other tabs or apps and try again.", "warning"]]);
+  const picture = { png: true };
+  h.$("solution-photo").toBlob = (done) => done(picture);
+  h.$("save-photo").onclick();
+  assert.deepEqual(h.downloads, [[picture, "gridpuzzle-solution.png"]]);
+  assert.equal(h.statuses.length, 1, "a picture that was saved says nothing more");
+});
 
 test("entering Play hides the solved photo and disables solution-only controls", () => {
   const h = viewHarness(); h.render();

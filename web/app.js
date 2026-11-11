@@ -1461,8 +1461,15 @@ $("save-photo").onclick = () => {
     return;
   }
   drawOverlay();
+  // A canvas the browser cannot encode, for lack of memory on a phone as a
+  // rule, gives no blob: the tap then says so instead of doing nothing.
   $("solution-photo").toBlob((blob) => {
     if (blob) downloadBlob(blob, "gridpuzzle-solution.png");
+    else status(
+      "Could not save the overlay.",
+      "The browser could not make the picture, usually for lack of memory. Close other tabs or apps and try again.",
+      "warning",
+    );
   });
 };
 $("import-json").onclick = () => $("json-file").click();
