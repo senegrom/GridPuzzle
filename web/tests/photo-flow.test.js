@@ -1361,9 +1361,10 @@ test('a clean Read is solved automatically only with automatic solving ticked', 
 });
 // While Editing is set to Play the user means to solve the puzzle: a clear
 // reading is not solved for them, which would show the solution and end Play
-// (solveNow in app.js). The reading waits, Play stays on, and the status says
-// why nothing was solved and names the button that shows the solution. Under
-// every other editing tool the automatic solve is as it was.
+// (solveNow in app.js). The reading waits, and the status says why nothing
+// was solved and names the button that shows the solution. Under every other
+// editing tool the automatic solve is as it was. (That Play stays on, in the
+// saved preference too, is for the real page to show: scanner_settings.)
 const READ = 'Latin square. Check highlighted cells and the puzzle rules.',
   READ_IN_PLAY = 'Latin square. Not solved automatically while Editing is set to Play: enter your answers, or tap Reveal solution.';
 test('a clean Read is not solved automatically while Editing is set to Play, and the status says so', async t => {
@@ -1375,7 +1376,6 @@ test('a clean Read is not solved automatically while Editing is set to Play, and
   assert.equal(h.state.needsReview, false); assert.equal(h.state.uncertain.size, 0);
   assert.equal(h.solves(), 0, 'not solved');
   assert.deepEqual(h.statuses.at(-1), ['Puzzle read.', READ_IN_PLAY]);
-  assert.equal(h.$('edit-tool').value, 'play', 'Play stays on');
   for (const [n, tool] of ['value', 'cage', 'inequality'].entries()) {
     h.$('edit-tool').value = tool;
     h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
@@ -1384,8 +1384,11 @@ test('a clean Read is not solved automatically while Editing is set to Play, and
   }
 });
 // A reading that would wait anyway keeps the status it has under any tool:
-// the line about Play explains only a solve that Play held back.
-const waiting = { 'automatic solving unticked': () => cleanReading(), ...gated };
+// the line about Play explains only a solve that Play held back. (A reading
+// that needs review, as a half-turned one or one with suggested boxes does,
+// is not among `gated`, whose test expects needsReview to stay false.)
+const waiting = { 'automatic solving unticked': () => cleanReading(), ...gated,
+  'nothing flagged but its review to confirm': () => ({ ...cleanReading(), needsReview: true }) };
 for (const [what, reading] of Object.entries(waiting)) test(`in Play a Read with ${what} keeps the usual status`, async t => {
   const h = photoHarness(t);
   h.$('auto-solve').checked = what !== 'automatic solving unticked'; h.$('edit-tool').value = 'play';

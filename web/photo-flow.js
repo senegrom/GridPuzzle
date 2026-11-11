@@ -1318,7 +1318,8 @@ export function setupPhotoFlow({
       // way up and kept it (keptNote), and turns no other grid (rotateNote).
       // A note only: it moves no flag, and like every note it shows while the
       // reading is under review; a reading with nothing to review still
-      // solves automatically, which clears the notes.
+      // solves automatically (unless Editing is set to Play, below), which
+      // clears the notes.
       if (liveTurn && !found.turns) notes.unshift(rows === cols ? keptNote(liveTurn) : rotateNote(liveTurn));
       if (needsBoxReview) notes.push(boxNote({ boxRows, boxCols }));
       // Prepare every editable field before touching history or accepted state.
@@ -1376,8 +1377,10 @@ export function setupPhotoFlow({
       // and ends Play (solveNow in app.js), and someone who keeps Play on
       // means to solve the puzzle themselves. The reading then waits like any
       // other, the status says why nothing was solved, and Reveal solution is
-      // a tap away. The render above has put Editing back to Clues where the
-      // puzzle read cannot be played (Slitherlink), which is then solved.
+      // a tap away. Only a chosen Sudoku or Latin square reads with nothing
+      // to review (scanner.js puzzleFromReadings), and each can be played, so
+      // the render above, which puts Editing back to Clues for a puzzle that
+      // cannot be played (Slitherlink), decides nothing here.
       const solves = $("auto-solve").checked &&
         !state.uncertain.size &&
         !state.cageUncertain.size &&

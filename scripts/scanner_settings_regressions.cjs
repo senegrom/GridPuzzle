@@ -91,7 +91,11 @@ async function exercise(page, base) {
   assert.equal(played.result, null);
   assert.equal(played.needsReview, false);
   assert.deepEqual([played.editing, played.saved, played.label], ["play", "play", "Reveal solution"]);
-  await page.selectOption("#edit-tool", "value");
+  // Reveal solution is then the one tap that shows it: the solve runs as for
+  // any other board, and ends Play.
+  await page.click("#solve");
+  await solved(page);
+  assert.equal(await page.inputValue("#edit-tool"), "value");
 
   // Rotate turns the photograph, not the printed puzzle: the box controls keep
   // its 3 × 2 boxes, and the reading, upright, is solved with them again.
