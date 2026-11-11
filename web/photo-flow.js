@@ -1371,21 +1371,31 @@ export function setupPhotoFlow({
       render({ replaceDraft: true });
       $("photo-panel").hidden = true;
       warmSolver?.();
+      // A clear reading is solved at once when automatic solving is ticked,
+      // but not while Editing is set to Play: the solve shows the solution
+      // and ends Play (solveNow in app.js), and someone who keeps Play on
+      // means to solve the puzzle themselves. The reading then waits like any
+      // other, the status says why nothing was solved, and Reveal solution is
+      // a tap away. The render above has put Editing back to Clues where the
+      // puzzle read cannot be played (Slitherlink), which is then solved.
+      const solves = $("auto-solve").checked &&
+        !state.uncertain.size &&
+        !state.cageUncertain.size &&
+        !state.needsReview &&
+        state.puzzle.cells.some(Number.isInteger),
+        playing = $("edit-tool").value === "play";
       if (capture) status("Captured clues read again, turned the right way up.",
         "Check the clues and rules against the picture before solving or playing.");
+      else if (solves && playing) status(
+        "Puzzle read.",
+        `${TYPES[state.puzzle.type]}. Not solved automatically while Editing is set to Play: enter your answers, or tap Reveal solution.`,
+      );
       else status(
         "Puzzle read.",
         `${type === "auto" ? `${TYPES[state.puzzle.type]} suggested` : TYPES[state.puzzle.type]}. Check highlighted cells and the puzzle rules.`,
       );
       $("board-title").scrollIntoView({ behavior: "smooth", block: "start" });
-      if (
-        $("auto-solve").checked &&
-        !state.uncertain.size &&
-        !state.cageUncertain.size &&
-        !state.needsReview &&
-        state.puzzle.cells.some(Number.isInteger)
-      )
-        solveNow();
+      if (solves && !playing) solveNow();
     } catch (e) {
       if (id === getJobId()) {
         finish();

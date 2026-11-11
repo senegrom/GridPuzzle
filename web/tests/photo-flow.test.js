@@ -1066,7 +1066,7 @@ function photoHarness(t) {
     uncertain: new Set([0]), cageUncertain: new Set(), blackReadings: [], needsReview: true,
     notes: [], play: fitPlay(puzzle, []), hints: new Set(), selected: [], history: [] };
   let epoch = 0, capture, found, saved, detection = null, solves = 0;
-  const errors = [], stopTask = () => ++epoch;
+  const errors = [], statuses = [], stopTask = () => ++epoch;
   const storage = { set: (_key, value) => { saved = value; }, get: key => key === 'gridpuzzle-session-v1' ? saved : null };
   const setLayout = layout => {
     state.layout = { ...layout };
@@ -1078,7 +1078,7 @@ function photoHarness(t) {
     read: async () => found,
     detect: async () => detection ?? ({ rows: found.puzzle.rows, cols: found.puzzle.cols, confidence: .99, corners: state.corners }),
   }, stopTask, invalidate: stopTask, begin: stopTask, finish() {}, fail: e => errors.push(e.message),
-  render() {}, status() {}, remember() {}, persist: () => saveSession(storage, state), drawBoard() {},
+  render() {}, status(...lines) { statuses.push(lines); }, remember() {}, persist: () => saveSession(storage, state), drawBoard() {},
   clearPhotoMapping() { state.rectified = state.photoSource = null; }, solveNow() { solves++; }, boxDefault: boxShape,
   setLayout, getJobId: () => epoch, setDeadline() {}, savePicture: async () => true,
   liveFactory({ diagnostics }) { return {
@@ -1092,7 +1092,7 @@ function photoHarness(t) {
   } });
   const diag = (id = 'scan-diagnostics') => Object.fromEntries(
     ['prepare', 'image-toggle', 'preview', 'error', 'image', 'download'].map(key => [key, $(id + '/' + key)]));
-  return { $, state, errors, storage, encoded, diag, setLayout, solves: () => solves,
+  return { $, state, errors, statuses, storage, encoded, diag, setLayout, solves: () => solves,
     setFound: value => { found = value; }, setCapture: value => { capture = value; },
     setDetection: value => { detection = value; } };
 }
@@ -1358,6 +1358,41 @@ test('a clean Read is solved automatically only with automatic solving ticked', 
   h.$('auto-solve').checked = true;
   h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
   assert.equal(h.solves(), 1);
+});
+// While Editing is set to Play the user means to solve the puzzle: a clear
+// reading is not solved for them, which would show the solution and end Play
+// (solveNow in app.js). The reading waits, Play stays on, and the status says
+// why nothing was solved and names the button that shows the solution. Under
+// every other editing tool the automatic solve is as it was.
+const READ = 'Latin square. Check highlighted cells and the puzzle rules.',
+  READ_IN_PLAY = 'Latin square. Not solved automatically while Editing is set to Play: enter your answers, or tap Reveal solution.';
+test('a clean Read is not solved automatically while Editing is set to Play, and the status says so', async t => {
+  const h = photoHarness(t);
+  h.$('auto-solve').checked = true; h.$('edit-tool').value = 'play';
+  h.setFound(cleanReading());
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.state.puzzle.cells[0], 2, 'the reading is on the board');
+  assert.equal(h.state.needsReview, false); assert.equal(h.state.uncertain.size, 0);
+  assert.equal(h.solves(), 0, 'not solved');
+  assert.deepEqual(h.statuses.at(-1), ['Puzzle read.', READ_IN_PLAY]);
+  assert.equal(h.$('edit-tool').value, 'play', 'Play stays on');
+  for (const [n, tool] of ['value', 'cage', 'inequality'].entries()) {
+    h.$('edit-tool').value = tool;
+    h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+    assert.equal(h.solves(), n + 1, `solved while Editing is set to ${tool}`);
+    assert.deepEqual(h.statuses.at(-1), ['Puzzle read.', READ]);
+  }
+});
+// A reading that would wait anyway keeps the status it has under any tool:
+// the line about Play explains only a solve that Play held back.
+const waiting = { 'automatic solving unticked': () => cleanReading(), ...gated };
+for (const [what, reading] of Object.entries(waiting)) test(`in Play a Read with ${what} keeps the usual status`, async t => {
+  const h = photoHarness(t);
+  h.$('auto-solve').checked = what !== 'automatic solving unticked'; h.$('edit-tool').value = 'play';
+  h.setFound(reading());
+  h.$('read-photo').onclick(); await tick(); assert.deepEqual(h.errors, []);
+  assert.equal(h.solves(), 0);
+  assert.deepEqual(h.statuses.at(-1), ['Puzzle read.', READ]);
 });
 
 test('notes have one bounded session/backup contract without losing flags, pending evidence or Play', t => {
