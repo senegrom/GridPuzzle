@@ -79,6 +79,12 @@ jobs:
             python-version: "3.15"
             freethreaded: false
             allow-prereleases: false
+          # 3.16 has no final release yet, so this leg allows prereleases and
+          # setup-python installs the newest 3.16 alpha, beta or candidate.
+          - label: Python 3.16 prerelease
+            python-version: "3.16"
+            freethreaded: false
+            allow-prereleases: true
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
