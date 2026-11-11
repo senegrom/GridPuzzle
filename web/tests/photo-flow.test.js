@@ -236,7 +236,7 @@ test("a page hidden with the live camera open says that the camera was closed", 
   h.hide();
   assert.equal(h.$("camera-panel").hidden, true);
   assert.deepEqual(h.statuses.at(-1), CLOSED_HIDDEN);
-  // An opening that has ended is not what a later hide speaks of.
+  // The camera that closed is spoken of once: a later hide finds none open.
   const told = h.statuses.length;
   h.hide();
   assert.equal(h.statuses.length, told, "nothing more to say with no camera open");
@@ -270,6 +270,51 @@ test("a frozen solution says in the camera's help line, not in the status, that 
   assert.equal(h.statuses.length, before);
   assert.match(h.$("camera-help").textContent, /turned off while the app was in the background/);
   assert.equal(h.$("camera-panel").hidden, false);
+});
+// The opening a hide speaks of is the one that still asks. A second tap on
+// Scan retires the first opening, whose late answer must not end the second's
+// asking.
+test("a page hidden while a second opening still asks says so, also once the first request was answered", async (t) => {
+  const h = await cameraHarness(t, { freshStreams: true }), first = h.holdRequests();
+  const one = h.$("camera").onclick(); await tick();
+  const second = h.holdRequests(), two = h.$("camera").onclick(); await tick();
+  first.resolve(); await one;
+  assert.deepEqual(h.statuses.at(-1), ["Opening camera…", "Please allow camera access."]);
+  h.hide();
+  assert.deepEqual(h.statuses.at(-1), NOT_OPENED);
+  second.resolve(); await two;
+  assert.equal(h.liveStarted, 0);
+  assert.deepEqual(h.statuses.at(-1), NOT_OPENED);
+});
+// An opening that was retired while it asked (a task, a chosen file, a new
+// board or an earlier hide stops the camera) is not what a later hide speaks
+// of, though its request is still unanswered; and one prompt is spoken of once.
+test("a page hidden after the opening that asked was retired says nothing of it, and a second hide says nothing more", async (t) => {
+  const h = await cameraHarness(t), asked = h.holdRequests();
+  const opening = h.$("camera").onclick(); await tick();
+  h.flow.stopCamera();
+  const before = h.statuses.length;
+  h.hide();
+  assert.equal(h.statuses.length, before, "the retired opening is not spoken of");
+  const again = h.$("camera").onclick(); await tick();
+  h.hide(); h.hide();
+  assert.equal(h.statuses.filter((line) => line[0] === NOT_OPENED[0]).length, 1);
+  assert.deepEqual(h.statuses.at(-1), NOT_OPENED);
+  asked.resolve(); await opening; await again;
+  assert.equal(h.liveStarted, 0);
+});
+// The camera is open once its stream is handed over, before any preview runs:
+// with playback refused, Start preview is offered, and the status under the
+// panel still says "Opening camera…".
+test("a page hidden while Start preview is offered says that the camera was closed", async (t) => {
+  const h = await cameraHarness(t, { play: async () => { throw Object.assign(Error("no gesture"), { name: "NotAllowedError" }); } });
+  await h.$("camera").onclick();
+  assert.equal(h.$("start-camera").hidden, false);
+  assert.equal(h.statuses.at(-1)[0], "Opening camera…");
+  h.hide();
+  assert.equal(h.$("camera-panel").hidden, true);
+  assert.equal(h.track.stopped, 1);
+  assert.deepEqual(h.statuses.at(-1), CLOSED_HIDDEN);
 });
 
 test("track-ended listeners are attached before playback is awaited", async (t) => {

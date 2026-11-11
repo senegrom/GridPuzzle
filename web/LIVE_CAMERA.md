@@ -423,10 +423,13 @@ capture never accepts the clues or rules for the user. The camera stops and
 the picture stays on the same screen, also when the page is hidden meanwhile
 (an app switch, the lock screen, a download prompt): only a live camera is
 released on hide, and a captured still holds no camera. The page's status
-then says so, "Camera closed." with "It was turned off while the app was in
-the background.", or, when the hide came while the browser was still asking
-for the camera, "Camera not opened." with what to tap to try again; until
-November 2026 it went on saying "Camera ready." or "Opening camera…". Escape
+says what the hide did: where it closes the camera (the live view, or one
+whose preview has not started yet), "Camera closed." with "It was turned off
+while the app was in the background."; where it comes while the browser is
+still asking for the camera, "Camera not opened." with what to tap to try
+again. A frozen view stays on screen instead and says it in its help line
+("The frozen solution and Clear" above). Until November 2026 the status went
+on saying "Camera ready." or "Opening camera…". Escape
 closes the camera panel like a dialog, also from the frozen view, and returns
 focus to the Scan button.
 
@@ -1225,7 +1228,12 @@ Unit tests (`node --test web/tests/*.test.js`):
   later app switch keeping the line that says why; getUserMedia again on Clear,
   called inside its tap, with a grant or failure that arrives after a close, a
   reopen or an app switch fenced; a muted track kept until it unmutes, the
-  failure texts, and Escape and the shutter from the frozen view. `app.test.js`
+  failure texts, and Escape and the shutter from the frozen view; and what a
+  hide outside the frozen view leaves in the status: "Camera closed." for a
+  camera it closes (also one that only offers Start preview), "Camera not
+  opened." for the opening the browser still asks for (said once, and not for
+  an opening already retired), and nothing new for a captured still or a
+  camera already closed. `app.test.js`
   checks the Frozen chip's contrast and that the camera's video has no
   `autoplay` attribute.
 - `live-overlay-view.test.js`: the live view on the production camera, tracker
