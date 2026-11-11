@@ -393,8 +393,6 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         const blocker = unsolvable(found);
         status = blocker ? explained(found, blocker) : autoSolve() ? "Clues read — checking the current grid…" : explained(found, solvingOff(found));
         validate();
-        if (blocker) return;
-
       } catch (error) {
         if (base) failedRetry("full-retry-failed");
         else if (owns() && error?.name !== "AbortError") { status = error.message || "Could not read this frame. Try moving closer."; if (validate()) say(status); }
