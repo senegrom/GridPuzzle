@@ -45,6 +45,15 @@ test("the camera's video plays muted and inline, without the autoplay attribute"
   assert.match(video, /\smuted\b/); assert.match(video, /\splaysinline\b/);
 });
 
+// The text the camera's panel starts with stays until the camera writes its
+// first line, under every setting. It promises no solution: the previews
+// show one only with automatic solving ticked and Editing not set to Play,
+// and the camera's own aiming line says so there (live-camera.js).
+test("the camera panel's starting text promises no solution", () => {
+  const help = read("index.html").match(/<p id="camera-help"[^>]*>([^<]*)<\/p>/)?.[1];
+  assert.equal(help, "Hold the whole grid steady. Recognition appears here.");
+});
+
 // "Wait up to 3 s for clearer clues before freezing" sits right after the
 // automatic-solving checkbox in the scanner settings, unticked by default. A
 // no-break space keeps "3 s" on one line however narrow the label wraps.
