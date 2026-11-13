@@ -323,10 +323,17 @@ async function captureWithoutAutoSolve(page,report) {
 // as the reading completes (read then: with a clue in doubt, the line that
 // asks for a clearer frame takes its place later); nothing is solved (the
 // camera starts no solver, counted from the tap that opens it) and nothing
-// freezes, also three seconds on, the freeze's longest wait; and the export
+// freezes, also three seconds on, the freeze's longest wait, when the help
+// line is none of those a solve writes either (SOLVE_LINES: a camera handed
+// an interpreter would start no solver of its own); and the export
 // records Play beside automatic solving. The shutter saves the picture and
 // keeps the reading, and Play is still on with the camera closed. Then
 // Editing is set back to Clues, and Worker to what it was.
+// SOLVE_LINES: the help lines of a solve begun, answered, failed or frozen
+// (live-session.js, live-camera.js) and the aiming line that promises one. A
+// reading that contradicts itself keeps "before a solution can be shown"
+// under every setting, which is none of them.
+const SOLVE_LINES=/Finding a solution|Solution preview|Solution found|More than one solution|No solution|Preview search|checking the current grid|solution appear here/;
 async function readsOnlyInPlay(page,report) {
   await watchTrackReplies(page);
   await page.evaluate(()=>{
@@ -366,6 +373,7 @@ async function readsOnlyInPlay(page,report) {
     assert.equal(live.solution,0);assert.equal(live.paused,false);
     assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
     assert.equal(live.solvers,0,"the camera started no solver");
+    assert.doesNotMatch(live.help,SOLVE_LINES,"and the help line speaks of no solve, whichever line it is by then");
     assert.equal(live.settings.playing,true,"the export records Play");assert.equal(live.settings.autoSolve,true,"beside automatic solving, still ticked");
     await shutterAfterVerification(page);
     await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));

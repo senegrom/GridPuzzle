@@ -1604,7 +1604,10 @@ solving off", came with the owner's choice of November 2026 that the camera
 only reads while Editing is set to Play: with automatic solving ticked, the
 real page's camera reads the paper, starts no solver and does not freeze,
 also three seconds on, which the step waits out; the help line says why as
-the reading completes, the export records Play, and the shutter keeps the
+the reading completes, and three seconds on it is none of the lines a solve
+writes (`web/tests/step-cleanups.test.js` plays the step on its stand-in page
+with each such line, which fails it, and with lines of a camera that only
+reads, which pass); the export records Play, and the shutter keeps the
 reading. It took 5.1 and 6.0 s in two local Chromium runs (2026-11-13), and
 4.4 s in Chromium and 12.7 s in WebKit on the hosted runner (run
 43335500472).

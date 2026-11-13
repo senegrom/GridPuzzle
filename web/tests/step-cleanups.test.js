@@ -318,7 +318,8 @@ const SITES = [
       const line = 'Clues read (10 recognised, 4 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.';
       if (evaluates(call, 'editing:document.getElementById("edit-tool").value')) return { editing: 'play', autoSolve: true };
       // Three seconds on, the help line has given way to the one that asks for
-      // a clearer frame of the clues in doubt: the step no longer reads it.
+      // a clearer frame of the clues in doubt: the step asks of the line then
+      // only that it speaks of no solve.
       if (evaluates(call, 'solvers:window.solversStarted')) return { view: 'live', overlay: 'outline', solution: 0, paused: false,
         legend: ['10', '4', null, null], solvers: 0, help: 'Waiting for a clearer frame of the unclear clues (uncertain ? in the legend). Capture to review them manually.' };
       if (evaluates(call, 'line:document.getElementById("camera-help").textContent')) return { line, counts: ['10', '4'] };
@@ -440,6 +441,63 @@ for (const site of SITES)
         (t) => check(t, site, false, way));
     }
   });
+
+// "The camera in Play", three seconds after its reading was complete: the
+// step fails on a help line that a solve writes, whichever of them, and the
+// page is still put back, once. The count of solvers alone would not tell: a
+// camera that was handed the page's interpreter starts none of its own. A
+// line that a camera which only reads writes then passes, also the one whose
+// words speak of a solution that cannot be shown.
+describe('live_camera: the help line three seconds on, in "the camera in Play"', () => {
+  const PLAY = SITES.find(({ name }) => name === 'Editing after the camera in Play');
+  const SOLVES = ['Finding a solution on this device…', 'Clues read — checking the current grid…',
+    'Solution found — hold the grid steady for a moment…',
+    'Solution preview — check the clues and rules. Tap the shutter to save this picture.',
+    'Solution preview — frozen. Check the clues and rules. Save picture keeps it; Clear returns to the live camera.',
+    'More than one solution — check the readings and puzzle type.', 'No solution to these readings — move closer or review the clues.',
+    'Preview search paused. Keep the grid in view to retry, or capture and use the full editor.',
+    'Preview search failed. Capture to review the clues.',
+    'Hold the grid steady. Recognition and solution appear here automatically.'];
+  const READS = ['Clues read (10 recognised, 4 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.',
+    'Conflicting readings (uncertain ? in the legend) must be corrected before a solution can be shown.',
+    'No new clue evidence. Keeping the previous reading; waiting for a clearer frame.',
+    'Automatic retries finished — capture to review the remaining clues.',
+    'The grid looks sideways. Turn the page or the phone a quarter turn so the numbers stand upright; if they already do, move closer.',
+    'Hold the grid steady. Recognition appears here automatically.'];
+  // Every one of those lines is the page's own: none is a line of this file alone.
+  test('each line tried here is one the camera writes', () => {
+    const written = ['live-session.js', 'live-camera.js', 'live-overlay.js']
+      .map((name) => fs.readFileSync(new URL(`../${name}`, import.meta.url), 'utf8')).join('\n');
+    for (const line of [...SOLVES, ...READS.slice(1)]) assert.ok(written.includes(line), line);
+  });
+  const play = async (t, line) => {
+    const counted = limitsCounted(t);
+    try {
+      const site = { ...PLAY, answer: (call, state) => {
+        const answer = PLAY.answer(call, state);
+        return evaluates(call, 'solvers:window.solversStarted') ? { ...answer, help: line } : answer;
+      } };
+      const page = standInPage(site, true, 'answer'), report = { browser: 'chromium', cleanupErrors: [], checks: [] };
+      const seen = outcomeOf(site.run(page, report));
+      await tick();
+      t.mock.timers.tick(3000); await tick();
+      assert.notEqual(seen.outcome, null, 'the step has ended');
+      assert.equal(page.calls.filter((call) => call.putBack).length, 1, 'the page is put back, once');
+      return { error: seen.outcome.error, report };
+    } finally { counted.restore(); }
+  };
+  for (const line of SOLVES) test(`the step fails on "${line}"`, async (t) => {
+    const { error, report } = await play(t, line);
+    assert.equal(error?.name, 'AssertionError');
+    assert.match(error.message, /^and the help line speaks of no solve, whichever line it is by then/);
+    assert.deepEqual(report.checks, []);
+  });
+  for (const line of READS) test(`the step passes on "${line}"`, async (t) => {
+    const { error, report } = await play(t, line);
+    assert.equal(error, undefined);
+    assert.deepEqual(report.checks, [PLAY.check]);
+  });
+});
 
 // browser_regressions' camera-ownership check when its 180-s solve wait
 // fails: the wait's catch reads what the page showed, through readWithin()
