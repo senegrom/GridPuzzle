@@ -96,6 +96,28 @@ test('the status of a complete reading without automatic solving names its count
  auto=true;s.validate();auto=false;s.validate();
  assert.equal(statuses.at(-1),'Clues read (1 recognised, 1 uncertain). Automatic solving is off; capture to review or play.');
 });
+// While Editing is set to Play the camera's previews solve nothing either
+// (live-camera.js: autoSolve() is then false, whatever its box says), and the
+// status says that Play is why, not that automatic solving is off.
+test('the status of a complete reading left unsolved while Editing is set to Play says so, with its counts',async t=>{
+ const PLAY='Clues read (1 recognised, 1 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.';
+ const statuses=[],d=defer();let auto=false,playing=true,solves=0;
+ const s=createLiveSession({read:()=>d.promise,solve:()=>{solves++;return new Promise(()=>{});},cancelRead(){},cancelSolve(){},
+  autoSolve:()=>auto,playing:()=>playing,onChange(){},onStatus:m=>statuses.push(m),isCurrent:()=>true,sameScene:()=>true});
+ const corners=[{x:0,y:0},{x:20,y:0},{x:20,y:20},{x:0,y:20}];
+ s.start();t.after(()=>s.stop());
+ for(let i=0;i<2;i++)s.observe({key:'2',width:21,height:21,corners,sharpness:200,image:{width:21,height:21}});
+ const puzzle=makePuzzle('latinsquare',2);puzzle.cells=[1,2,null,null];
+ d.resolve({puzzle,markedCells:[0,1],cellUncertain:[1],notes:[]});await flush();
+ assert.equal(statuses.at(-1),PLAY);assert.equal(solves,0);
+ // Play left and taken up again: the solve that began is withdrawn with the same line.
+ playing=false;auto=true;s.validate();assert.equal(solves,1);
+ playing=true;auto=false;s.validate();
+ assert.equal(statuses.at(-1),PLAY);assert.equal(s.preview.result,null);assert.equal(s.busy,false);
+ // Outside Play, a solve withdrawn by unticking automatic solving has that box's line.
+ playing=false;auto=true;s.validate();auto=false;s.validate();
+ assert.equal(statuses.at(-1),'Clues read (1 recognised, 1 uncertain). Automatic solving is off; capture to review or play.');
+});
 
 // keep(): the camera holds the help line as it stands while a solved reading
 // is about to freeze, so that neither the session's statuses nor a text of
@@ -425,11 +447,12 @@ function sidewaysFound({full=false}={}){
   entries:TURN_MARKED.map(cell=>({cell,kind:'value',h:20,w:40,text:Number.isInteger(puzzle.cells[cell])?String(puzzle.cells[cell]):'',
    confidence:Number.isInteger(puzzle.cells[cell])&&!uncertain.includes(cell)?90:0}))};
 }
-function sidewaysSession(t,{full=false,autoSolve=true,answer=null}={}){
+function sidewaysSession(t,{full=false,autoSolve=true,playing=false,answer=null}={}){
  let time=0,auto=autoSolve;const statuses=[],events=[],retries=[],solves=[];
  const s=createLiveSession({read:async()=>sidewaysFound({full}),readCells:(sample,base,cells)=>new Promise(resolve=>retries.push({cells,resolve})),
   solve:()=>{solves.push(1);return answer?Promise.resolve(answer):new Promise(()=>{});},cancelRead(){},cancelSolve(){},
-  onChange(){},onStatus:m=>statuses.push(m),onEvent:e=>events.push(e.reason),autoSolve:()=>auto,isCurrent:()=>true,sameScene:()=>true,now:()=>time});
+  onChange(){},onStatus:m=>statuses.push(m),onEvent:e=>events.push(e.reason),autoSolve:()=>auto,playing:()=>playing,
+  isCurrent:()=>true,sameScene:()=>true,now:()=>time});
  const corners=[{x:0,y:0},{x:99,y:0},{x:99,y:99},{x:0,y:99}];
  const observe=score=>s.observe({key:'4',rows:4,cols:4,width:100,height:100,corners,image:{width:100,height:100},sharpness:score,
   quality:{score,cellPixels:30,cells:[{cell:0,score,contrast:100}]}});
@@ -469,4 +492,11 @@ test('a sideways reading names the turn when it has no solution or several, and 
  const later=sidewaysSession(t,{full:true,answer:{status:'no-solution',complete:true,solutions:[]}});await flush();await flush();
  later.autoSolve(false);
  assert.equal(later.statuses.at(-1),SIDEWAYS);
+ // While Editing is set to Play, as with solving off: the turn comes before
+ // the line that names Play, for a finished read and for a solve withdrawn.
+ const play=sidewaysSession(t,{full:true,autoSolve:false,playing:true});await flush();
+ assert.equal(play.solves.length,0);assert.equal(play.statuses.at(-1),SIDEWAYS,'not the line that names Play');
+ const taken=sidewaysSession(t,{full:true,playing:true,answer:{status:'no-solution',complete:true,solutions:[]}});await flush();await flush();
+ taken.autoSolve(false);
+ assert.equal(taken.statuses.at(-1),SIDEWAYS);
 });

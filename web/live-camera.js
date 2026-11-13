@@ -107,8 +107,16 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   const FRESH_TRACK_AGE = 500, LIVE_SETTLE = 2000, STALE_TRACK_AGE = MAX_VERIFIED_TRACK_AGE;
   const recovery = createTrackingRecovery({ now });
   let lastPaint = null, solverPrepared = false, unmatchedCandidates = 0;
+  // Whether the previews solve a complete reading: with automatic solving
+  // ticked, and not while Editing is set to Play (the settings' `playing`),
+  // where the user means to solve the puzzle and a solution on screen would
+  // give it away. The camera then only reads, as without automatic solving:
+  // nothing is solved, nothing freezes, and the help line says which of the
+  // two it is.
+  const playing = () => getSettings()?.playing === true;
+  const solves = () => getSettings()?.autoSolve !== false && !playing();
   function prepareSolver() {
-    if (getSettings()?.autoSolve !== false && !solverPrepared) {
+    if (solves() && !solverPrepared) {
       solverPrepared = true; solver.prepare?.();
     }
   }
@@ -250,9 +258,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // camera's guidance goes through it too, and a later status is not skipped
   // as a repeat of a line that was overwritten in between.
   const say = (message) => { if (active) session.notify(message); };
+  // The aiming line promises a solution only where the previews solve.
   const aiming = () => getSettings()?.enabled === false
     ? "Automatic reading is switched off. Hold the grid steady and capture to crop and read in the editor."
-    : "Hold the grid steady. Recognition and solution appear here automatically.";
+    : solves() ? "Hold the grid steady. Recognition and solution appear here automatically."
+      : "Hold the grid steady. Recognition appears here automatically.";
   // Detector guidance (no grid, a timeout, rules the grid contradicts) ends a
   // streak of rejected candidates: the alignment message the heartbeat holds
   // describes a grid that is still being found, and must not hide this one.
@@ -292,7 +302,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
         { onDiagnostic: event => diagnostics?.event(event) }) : null,
     onEvent: event => diagnostics?.event(event),
     solve: (puzzle) => { prepareSolver(); return solver.solve(puzzle); },
-    autoSolve: () => getSettings()?.autoSolve !== false,
+    autoSolve: solves, playing,
     // Realignment retires the pending read, not the warm OCR engine.
     cancelRead: () => reader.cancel({ keepEngine: true }),
     // Realignment retires answers, not an idle interpreter; older/injected
@@ -708,9 +718,9 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   }
   function syncSettings(width, height) {
     const next = getSettings(), identitySettings = { ...next };
-    // Neither changes what is read: automatic solving and the freeze's wait
-    // apply to the reading on screen.
-    delete identitySettings.autoSolve; delete identitySettings.freezeWait;
+    // None changes what is read: automatic solving, Play and the freeze's
+    // wait apply to the reading on screen.
+    delete identitySettings.autoSolve; delete identitySettings.playing; delete identitySettings.freezeWait;
     const key = JSON.stringify([identitySettings, width, height]);
     if (key !== settingsKey) {
       epoch++; diagnostics?.configure?.(next); settingsKey = key; setting = next; guide = guideFrame = null;

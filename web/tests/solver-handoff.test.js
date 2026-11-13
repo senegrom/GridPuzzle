@@ -111,7 +111,7 @@ test("an idle interpreter nobody takes is terminated when the camera closes", (t
   assert.equal(page.terminated, true);
 });
 
-function flow(t, { mediaDevices, autoSolve = true } = {}) {
+function flow(t, { mediaDevices, autoSolve = true, editing = "value" } = {}) {
   const nodes = new Map(), handed = [], returned = [], factories = [];
   const $ = (id) => {
     if (!nodes.has(id)) nodes.set(id, { style: {}, hidden: true, setAttribute() {}, scrollIntoView() {}, focus() {} });
@@ -127,6 +127,7 @@ function flow(t, { mediaDevices, autoSolve = true } = {}) {
   globalThis.clearTimeout = () => {};
   Object.assign($("video"), { videoWidth: 64, videoHeight: 64, play: async () => {} });
   $("auto-solve").checked = autoSolve;
+  $("edit-tool").value = editing;
   const page = fakeWorker("page");
   const photo = setupPhotoFlow({
     $, state: {}, scanner: { cancel() {} }, stopTask() {}, status() {}, invalidate() {}, fail(error) { throw error; },
@@ -164,3 +165,15 @@ test("without automatic solving the camera takes no interpreter", async (t) => {
   assert.deepEqual(h.handed, [false]);
   assert.equal(h.factories[0].solverWorker, null);
 });
+
+// While Editing is set to Play the camera only reads (its previews solve
+// nothing, live-camera.js), so it takes no interpreter either, though
+// automatic solving is ticked. Under every other editing tool it takes it.
+for (const editing of ["play", "value", "cage", "inequality"])
+  test(`with Editing set to ${editing} and automatic solving ticked the camera takes ${editing === "play" ? "no interpreter" : "the page's interpreter"}`, async (t) => {
+    const stream = { getTracks: () => [] };
+    const h = flow(t, { mediaDevices: { getUserMedia: async () => stream }, editing });
+    await h.$("camera").onclick();
+    assert.deepEqual(h.handed, [editing !== "play"]);
+    assert.equal(h.factories[0].solverWorker, editing === "play" ? null : h.page);
+  });

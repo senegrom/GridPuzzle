@@ -316,6 +316,77 @@ async function captureWithoutAutoSolve(page,report) {
   },()=>autoSolve(true));
   report.checks.push("without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture");
 }
+// While Editing is set to Play the camera only reads, though automatic
+// solving is ticked: a solution on screen would give away the puzzle the user
+// means to solve. The playing video stays the display, with the outline over
+// it and the counts in the legend; the help line says why nothing is solved,
+// as the reading completes (read then: with a clue in doubt, the line that
+// asks for a clearer frame takes its place later); nothing is solved (the
+// camera starts no solver, counted from the tap that opens it) and nothing
+// freezes, also three seconds on, the freeze's longest wait, when the help
+// line is none of those a solve writes either (SOLVE_LINES: a camera handed
+// an interpreter would start no solver of its own); and the export
+// records Play beside automatic solving. The shutter saves the picture and
+// keeps the reading, and Play is still on with the camera closed. Then
+// Editing is set back to Clues, and Worker to what it was.
+// SOLVE_LINES: the help lines of a solve begun, answered, failed or frozen
+// (live-session.js, live-camera.js) and the aiming line that promises one. A
+// reading that contradicts itself keeps "before a solution can be shown"
+// under every setting, which is none of them.
+const SOLVE_LINES=/Finding a solution|Solution preview|Solution found|More than one solution|No solution|Preview search|checking the current grid|solution appear here/;
+async function readsOnlyInPlay(page,report) {
+  await watchTrackReplies(page);
+  await page.evaluate(()=>{
+    window.liveMode="grid";
+    const Made=window.playWorker=window.Worker;window.solversStarted=null;
+    window.Worker=class extends Made{constructor(url,options){super(url,options);if(/solver-worker/.test(String(url)))window.solversStarted++;}};
+    document.addEventListener("click",function opened(event){
+      if(!event.target?.closest?.("#camera"))return;
+      window.solversStarted=0;document.removeEventListener("click",opened,true);
+    },true);
+  });
+  await page.selectOption("#edit-tool","play");
+  await stepThenPutBack(report,"Editing after the camera in Play",async()=>{
+    const before=await page.evaluate(()=>({editing:document.getElementById("edit-tool").value,autoSolve:document.getElementById("auto-solve").checked}));
+    assert.deepEqual(before,{editing:"play",autoSolve:true},"the board on the page can be played, and automatic solving is ticked");
+    await startLive(page);
+    const PLAY="Clues read \\((\\d+) recognised, (\\d+) uncertain\\)\\. Not solved automatically while Editing is set to Play; capture to review or play\\.";
+    await page.waitForFunction(pattern=>{const d=document.getElementById("live-preview").dataset;
+      const help=new RegExp(`^${pattern}$`).exec(document.getElementById("camera-help").textContent);
+      return !!help&&d.recognised===help[1]&&d.uncertain===help[2]&&Number(d.recognised)+Number(d.uncertain)===14;},PLAY,{timeout:150000});
+    const read=await page.evaluate(()=>({line:document.getElementById("camera-help").textContent,
+      counts:["recognised","uncertain"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count"))}));
+    assert.equal(read.line.match(new RegExp(`^${PLAY}$`))?.[0],
+      `Clues read (${read.counts[0]} recognised, ${read.counts[1]} uncertain). Not solved automatically while Editing is set to Play; capture to review or play.`,
+      "the help line says why nothing is solved, with the legend's counts");
+    await sleep(3000);
+    const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
+      return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
+        legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
+        help:document.getElementById("camera-help").textContent,solvers:window.solversStarted};});
+    live.settings=await page.evaluate(()=>{
+      const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
+      node("prepare").click();try{return JSON.parse(node("preview").textContent).settings;}finally{node("clear").click();}
+    });
+    report.playCamera={read,live};
+    assert.equal(live.view,"live","nothing freezes while Editing is set to Play");assert.equal(live.overlay,"outline");
+    assert.equal(live.solution,0);assert.equal(live.paused,false);
+    assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
+    assert.equal(live.solvers,0,"the camera started no solver");
+    assert.doesNotMatch(live.help,SOLVE_LINES,"and the help line speaks of no solve, whichever line it is by then");
+    assert.equal(live.settings.playing,true,"the export records Play");assert.equal(live.settings.autoSolve,true,"beside automatic solving, still ticked");
+    await shutterAfterVerification(page);
+    await page.waitForFunction(()=>/Picture saved in this browser/.test(document.getElementById("camera-help").textContent));
+    assert.match(await page.textContent("#use-live-capture"),/Review captured clues/,"the shutter keeps the reading");
+    report.playCamera.offered=await page.textContent("#use-live-capture");
+    await page.click("#close-camera");
+    assert.equal(await page.inputValue("#edit-tool"),"play","Play is still on with the camera closed");
+  },()=>page.evaluate(()=>{
+    window.Worker=window.playWorker;
+    const tool=document.getElementById("edit-tool");tool.value="value";tool.dispatchEvent(new Event("change",{bubbles:true}));
+  }));
+  report.checks.push("while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading");
+}
 // The live view never turns a reading (only a still photograph's is checked
 // for a turn): aimed at the paper a quarter turn round, with real OCR, it
 // neither solves nor freezes. The help line says the grid looks sideways, by
@@ -499,6 +570,7 @@ async function run() {
         });
         await time("320 px",()=>narrowScreen(page,report));
         await time("live capture with automatic solving off",()=>captureWithoutAutoSolve(page,report));
+        await time("the camera in Play",()=>readsOnlyInPlay(page,report));
         await time("a page lying sideways",()=>pageLyingSideways(page,report));
         await time("the freeze's wait, off by default and on through its checkbox",async()=>{
           // "Wait up to 3 s for clearer clues before freezing" is off by
@@ -766,5 +838,6 @@ async function run() {
     });
   } finally{server.close();}
 }
-module.exports = { run, readAfterFailure, stepThenPutBack, layersAtEachScreen, narrowScreen, captureWithoutAutoSolve, pageLyingSideways };
+module.exports = { run, readAfterFailure, stepThenPutBack, layersAtEachScreen, narrowScreen, captureWithoutAutoSolve, readsOnlyInPlay,
+  pageLyingSideways };
 main(module,run);

@@ -50,7 +50,8 @@ function reading() {
 // printed grid; detection is stubbed to find it where it is. Every canvas
 // records the images drawn into it and its clears. `solve` is "unique" (an
 // immediate unique solution), "deferred" (h.solveJobs) or a function.
-function simulation(t, { autoSolve = true, solve = "unique", read = null, workerMs = 20 } = {}) {
+// `playing`: the settings say that Editing is set to Play (h.setPlaying).
+function simulation(t, { autoSolve = true, playing = false, solve = "unique", read = null, workerMs = 20 } = {}) {
   let time = 0, serial = 0, x = 120, y = 110, frozenTime = null, rejectAll = false, holdDetections = false, failVerify = 0;
   const timers = new Map(), nodes = new Map(), posts = [], draws = [], clears = [], created = [], workers = [];
   const solveJobs = [], heldDetections = [], viewChanges = [];
@@ -102,10 +103,10 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, worker
   const small = (p) => ({ x: p.x * 639 / (SIZE - 1), y: p.y * 639 / (SIZE - 1) });
   const found = () => ({ confidence: .99, rows: 4, cols: 4, sharpness: 200, corners: cornersAt(x, y).map(small) });
   const diagnostics = createScanDiagnostics({ now: () => time });
-  diagnostics.begin("live", { type: "latinsquare", rows: 4, cols: 4, autoSolve });
+  diagnostics.begin("live", { type: "latinsquare", rows: 4, cols: 4, autoSolve, playing });
   const video = { videoWidth: SIZE, videoHeight: SIZE, get currentTime() { return (frozenTime ?? time) / 1000; } };
   const camera = createLiveCamera({ tracker, $, canvas: view, diagnostics, video,
-    getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve }),
+    getSettings: () => ({ type: "latinsquare", rows: 4, cols: 4, boxRows: 2, boxCols: 2, enabled: true, autoSolve, playing }),
     detector: { detect() {
       counts.detects++;
       if (holdDetections) { const job = deferred(); heldDetections.push(job); return job.promise; }
@@ -146,7 +147,7 @@ function simulation(t, { autoSolve = true, solve = "unique", read = null, worker
     viewDraws: () => draws.filter((d) => d.target === view),
     move(dx, dy) { x += dx; y += dy; }, stall() { frozenTime = time; }, resume() { frozenTime = null; },
     rejectVerify(value) { rejectAll = value; }, holdDetections(value) { holdDetections = value; },
-    failVerify(count) { failVerify = count; } };
+    failVerify(count) { failVerify = count; }, setPlaying(value) { playing = value; } };
 }
 const frozenNow = (h) => h.camera.view === "frozen";
 
@@ -273,6 +274,48 @@ test("without automatic solving a settled reading never freezes and keeps tracki
   assert.ok(h.posts.length > posts + 10, "verification goes on");
   assert.match(h.help, /Automatic solving is off/);
 });
+
+// While Editing is set to Play the camera only reads, as without automatic
+// solving, though that box is ticked: a solution on screen would give away
+// the puzzle the user means to solve. Nothing is solved and nothing freezes,
+// the help line says why, and no line of the camera speaks of a solution.
+// Play is no part of the reading's identity: the reading on screen is solved,
+// and freezes, once Play is left.
+test("while Editing is set to Play a settled reading is never solved or frozen, though automatic solving is ticked", async (t) => {
+  const h = simulation(t, { playing: true });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  const posts = h.posts.length;
+  await h.advance(6000);
+  assert.equal(h.camera.view, "live");
+  assert.deepEqual(h.viewChanges, []);
+  assert.equal(h.counts.solves, 0); assert.equal(h.view.dataset.solution, "0");
+  assert.ok(h.posts.length > posts + 10, "verification goes on");
+  assert.equal(h.help, "Clues read (4 recognised, 0 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.");
+  assert.deepEqual(h.writes.filter((line) => /solution|Automatic solving/i.test(line)), [], "no line speaks of a solution, or of the box");
+  assert.equal(h.diagnostics.snapshot().settings.playing, true, "the diagnostics record why nothing was solved");
+  const reads = h.counts.reads;
+  h.setPlaying(false);
+  assert.ok(await h.until(() => frozenNow(h), 3000), "the reading freezes once Play is left");
+  assert.equal(h.counts.reads, reads, "the reading that was on screen, not a new one");
+  assert.equal(h.counts.solves, 1);
+});
+// The same reading under Play and without automatic solving at once: the
+// line names Play, the reason that the box cannot lift.
+test("while Editing is set to Play and automatic solving is unticked, the help line names Play", async (t) => {
+  const h = simulation(t, { playing: true, autoSolve: false });
+  assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
+  await h.advance(1000);
+  assert.match(h.help, /^Clues read \(4 recognised, 0 uncertain\)\. Not solved automatically while Editing is set to Play;/);
+  assert.equal(h.counts.solves, 0); assert.equal(h.camera.view, "live");
+});
+// The camera's first line promises a solution only where its previews solve.
+for (const [options, promised] of [[{}, true], [{ autoSolve: false }, false], [{ playing: true }, false], [{ autoSolve: false, playing: true }, false]])
+  test(`the aiming line ${promised ? "promises" : "does not promise"} a solution with ${JSON.stringify(options)}`, async (t) => {
+    const h = simulation(t, options);
+    await h.advance(100);
+    assert.equal(h.writes[0], promised ? "Hold the grid steady. Recognition and solution appear here automatically."
+      : "Hold the grid steady. Recognition appears here automatically.");
+  });
 
 test("a freeze inside a tick samples, tracks and adopts no frame after it", async (t) => {
   // Replies that report 200 ms keep the interval at 300 ms, so a tick runs on

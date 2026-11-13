@@ -16,15 +16,19 @@ export function releaseImage(image) {
 // such gap made the help line alternate with the status on each reply.
 const LOSS_LIMIT = 5000, ALIGN_NOTICE = 2000;
 
-// The status of a complete reading without automatic solving. Live video shows
-// no clue digits, so the line names the counts the legend shows too.
-function solvingOff(found) {
+// The status of a complete reading that is not solved for the user: automatic
+// solving is unticked, or (`playing`) Editing is set to Play, where the user
+// means to solve the puzzle and a solution on screen would give it away. The
+// line says which. Live video shows no clue digits, so it names the counts
+// the legend shows too.
+function solvingOff(found, playing) {
   let recognised = 0, uncertain = 0;
   for (const { kind } of overlayCells(found)) {
     if (kind === "recognised") recognised++;
     else if (kind === "uncertain") uncertain++;
   }
-  return `Clues read (${recognised} recognised, ${uncertain} uncertain). Automatic solving is off; capture to review or play.`;
+  const why = playing ? "Not solved automatically while Editing is set to Play" : "Automatic solving is off";
+  return `Clues read (${recognised} recognised, ${uncertain} uncertain). ${why}; capture to review or play.`;
 }
 
 // The live camera never turns a reading (it reads with orient: false): only
@@ -91,8 +95,11 @@ function unsolvable(found) {
 // and `sameScene(a, b)` whether two frames show the same printed puzzle.
 // `lossPaused()` says whether no proof can currently arrive (the tracking
 // worker is building an anchor); that time does not count towards the loss.
+// `autoSolve()` says whether a complete reading is solved; where it is not,
+// `playing()` says whether Editing set to Play is why, for the status alone
+// (solvingOff).
 export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChange, onStatus,
-  isCurrent, sameScene, autoSolve = () => true, readCells = null, onEvent = () => {}, lossPaused = () => false,
+  isCurrent, sameScene, autoSolve = () => true, playing = () => false, readCells = null, onEvent = () => {}, lossPaused = () => false,
   now = () => performance.now(), setTimer = setTimeout, clearTimer = clearTimeout }) {
   if (typeof isCurrent !== "function") throw new TypeError("createLiveSession requires isCurrent(frame)");
   if (typeof sameScene !== "function") throw new TypeError("createLiveSession requires sameScene(a, b)");
@@ -164,7 +171,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
     if (!autoSolve()) {
       if (solving) { solveGeneration++; solving = false; pending = false; cancelSolve(); }
       if (stored) {
-        if (stored.result || stored.solveFinished) status = explained(stored.found, solvingOff(stored.found));
+        if (stored.result || stored.solveFinished) status = explained(stored.found, solvingOff(stored.found, playing()));
         stored.result = null; stored.solveFinished = false;
       }
     }
@@ -391,7 +398,7 @@ export function createLiveSession({ read, solve, cancelRead, cancelSolve, onChan
         const turn = turnedPage(found);
         if (turn) onEvent({ stage: 'checking', reason: `grid-${turn}` });
         const blocker = unsolvable(found);
-        status = blocker ? explained(found, blocker) : autoSolve() ? "Clues read — checking the current grid…" : explained(found, solvingOff(found));
+        status = blocker ? explained(found, blocker) : autoSolve() ? "Clues read — checking the current grid…" : explained(found, solvingOff(found, playing()));
         validate();
       } catch (error) {
         if (base) failedRetry("full-retry-failed");

@@ -369,6 +369,26 @@ for (const [freezeWait, autoSolve] of [[true, false], [false, true]])
     assert.equal(settings.freezeWait, freezeWait, "the diagnostics record the freeze's wait from its box");
     assert.equal(settings.autoSolve, autoSolve, "and automatic solving from its own");
   });
+// Editing set to Play (#edit-tool): the camera's settings say so, read at
+// each call, and the camera's previews then solve nothing (live-camera.js);
+// the diagnostics record it with the live scan's settings. Automatic solving
+// keeps its own box: Play does not untick it, and neither is told from the
+// other.
+for (const [tool, autoSolve] of [["play", true], ["play", false], ["value", true], ["value", false], ["cage", true], ["inequality", true]])
+  test(`a camera opened with Editing set to ${tool} and automatic solving ${autoSolve ? "on" : "off"} tells the live view ${tool === "play" ? "that" : "nothing of"} Play`, async (t) => {
+    const h = await cameraHarness(t);
+    h.$("edit-tool").value = tool; h.$("auto-solve").checked = autoSolve;
+    await h.$("camera").onclick();
+    const settings = h.liveOptions.getSettings;
+    assert.equal(settings().playing, tool === "play");
+    assert.equal(settings().autoSolve, autoSolve, "automatic solving from its own box");
+    const recorded = h.diagnostics.snapshot().settings;
+    assert.equal(recorded.playing, tool === "play", "the diagnostics record Play");
+    assert.equal(recorded.autoSolve, autoSolve, "and automatic solving from its own box");
+    h.$("edit-tool").value = tool === "play" ? "value" : "play";
+    assert.equal(settings().playing, tool !== "play", "read at each call");
+    assert.equal(settings().autoSolve, autoSolve);
+  });
 
 // --- photo-flow: the frozen solution and Clear --------------------------
 test("freezing pauses the video but keeps the camera on; Clear plays it again before scanning resumes", async (t) => {
@@ -1575,6 +1595,22 @@ for (const [what, reading] of Object.entries(captures)) test(`Review captured cl
   assert.deepEqual(reloaded.cageUncertain, found.cageUncertain);
   assert.deepEqual(reloaded.blackReadings, found.blackReadings);
   assert.deepEqual(reloaded.notes, found.notes); assert.equal(reloaded.needsReview, true);
+});
+// While Editing is set to Play the camera only reads (live-camera.js), and
+// its shutter keeps the reading with the picture. Review captured clues takes
+// it to the board under review, as under any tool: nothing is solved there,
+// and Editing stays on Play, so the board is the user's to solve.
+for (const tool of ['play', 'value']) test(`Review captured clues with Editing set to ${tool} takes the reading to the board unsolved and leaves Editing as it is`, async t => {
+  const h = photoHarness(t), found = { puzzle: h.state.puzzle, notes: [], rectified: canvas(200, 200),
+    cellUncertain: [], cageUncertain: [], needsReview: true };
+  h.$('edit-tool').value = tool; h.$('auto-solve').checked = true;
+  h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found });
+  await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick(); await tick();
+  assert.deepEqual(h.errors, []);
+  assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0, 'not solved');
+  assert.equal(h.$('edit-tool').value, tool);
+  assert.deepEqual(h.statuses.at(-1), ['Captured clues ready for review.',
+    'The saved picture is unchanged. Confirm the clues and rules before solving or playing.']);
 });
 test('the captures above carry every field of a review: flagged clues, structure, black readings and notes', () => {
   const [hidato, killer] = Object.values(captures).map(reading => reading());

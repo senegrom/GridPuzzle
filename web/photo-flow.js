@@ -145,6 +145,10 @@ export function setupPhotoFlow({
     });
   }
   const returnSolver = (worker) => (adoptSolver ? adoptSolver(worker) : worker.terminate());
+  // Whether Editing is set to Play. The user then means to solve the puzzle,
+  // so nothing shows its solution unasked: a still photograph's clear reading
+  // is not solved (readPhoto), and the live camera only reads (openCamera).
+  const inPlay = () => $("edit-tool").value === "play";
   const diagnostics = createScanDiagnostics();
   setupDiagnosticsUI({ $, diagnostics, getSource: () => diagnostics.snapshot().source === "live"
     ? (live?.diagnosticSource?.() ?? { image: null, verified: false })
@@ -415,8 +419,9 @@ export function setupPhotoFlow({
     dropped = null;
     stopCamera();
     // Previews that solve take over the page's interpreter; without automatic
-    // solving the camera needs none, and the interpreter is released as before.
-    parkedSolver = releaseSolver?.($("auto-solve").checked === true) ?? null;
+    // solving, or while Editing is set to Play, the camera only reads and needs
+    // none, and the interpreter is released as before.
+    parkedSolver = releaseSolver?.($("auto-solve").checked === true && !inPlay()) ?? null;
     captured = null;
     const previewCanvas = $("live-preview");
     previewCanvas.getContext?.("2d")?.clearRect?.(0, 0, previewCanvas.width, previewCanvas.height);
@@ -454,7 +459,7 @@ export function setupPhotoFlow({
           $("start-camera").hidden = true;
           status("Camera ready.", "Hold a clear grid steady; the shutter saves the view.");
           diagnostics.begin("live", { type: $("puzzle-type").value, rows: Number($("rows").value), cols: Number($("cols").value),
-            autoSolve: $("auto-solve").checked, freezeWait: $("freeze-wait").checked === true });
+            autoSolve: $("auto-solve").checked, playing: inPlay(), freezeWait: $("freeze-wait").checked === true });
           live = liveFactory({ $, video, canvas: $("live-preview"), diagnostics,
             getSettings: () => ({
               type: $("puzzle-type").value,
@@ -462,6 +467,9 @@ export function setupPhotoFlow({
               boxRows: Number($("box-rows").value), boxCols: Number($("box-cols").value),
               enabled: $("auto-capture").checked,
               autoSolve: $("auto-solve").checked,
+              // Editing set to Play: the previews then solve nothing, as
+              // without automatic solving, and the help line says why.
+              playing: inPlay(),
               // The freeze's wait for clearer clues (off unless ticked).
               freezeWait: $("freeze-wait").checked === true,
             }),
@@ -1393,7 +1401,7 @@ export function setupPhotoFlow({
         !state.cageUncertain.size &&
         !state.needsReview &&
         state.puzzle.cells.some(Number.isInteger),
-        playing = $("edit-tool").value === "play";
+        playing = inPlay();
       if (capture) status("Captured clues read again, turned the right way up.",
         "Check the clues and rules against the picture before solving or playing.");
       else if (solves && playing) status(
