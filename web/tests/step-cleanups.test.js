@@ -309,20 +309,26 @@ const SITES = [
     check: 'without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture' },
   { suite: 'live_camera', name: 'Editing after the camera in Play',
     run: (page, report) => camera.readsOnlyInPlay(page, report),
-    isPutBack: (call) => evaluates(call, 'window.Worker=window.playWorker;'),
+    // Both halves of the call: Worker as it was, and Editing back on Clues with
+    // its change event, which saves the preference and renders.
+    isPutBack: (call) => evaluates(call, 'window.Worker=window.playWorker;')
+      && evaluates(call, 'tool.value="value";tool.dispatchEvent(newEvent("change",{bubbles:true}));'),
     failAt: (call) => call.kind === 'click' && call.selector === '#camera',
     answer: (call) => {
+      const line = 'Clues read (10 recognised, 4 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.';
       if (evaluates(call, 'editing:document.getElementById("edit-tool").value')) return { editing: 'play', autoSolve: true };
+      // Three seconds on, the help line has given way to the one that asks for
+      // a clearer frame of the clues in doubt: the step no longer reads it.
       if (evaluates(call, 'solvers:window.solversStarted')) return { view: 'live', overlay: 'outline', solution: 0, paused: false,
-        legend: ['10', '4', null, null], solvers: 0,
-        help: 'Clues read (10 recognised, 4 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.' };
+        legend: ['10', '4', null, null], solvers: 0, help: 'Waiting for a clearer frame of the unclear clues (uncertain ? in the legend). Capture to review them manually.' };
+      if (evaluates(call, 'line:document.getElementById("camera-help").textContent')) return { line, counts: ['10', '4'] };
       if (evaluates(call, '.textContent).settings;')) return { type: 'auto', playing: true, autoSolve: true };
       if (call.kind === 'textContent' && call.selector === '#use-live-capture') return 'Review captured clues';
       if (call.kind === 'inputValue' && call.selector === '#edit-tool') return 'play';
       return visible(call);
     },
     waits: [3000],
-    check: 'while Editing is set to Play the camera only reads, though automatic solving is ticked: the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, the help line says why and the export records Play; the shutter keeps the reading' },
+    check: 'while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading' },
   { suite: 'live_camera', name: 'paper\'s turn after a page lying sideways',
     run: (page, report) => camera.pageLyingSideways(page, report),
     isPutBack: (call) => evaluates(call, 'window.liveTurn=0;'),

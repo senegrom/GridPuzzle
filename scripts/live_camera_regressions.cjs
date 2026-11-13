@@ -319,12 +319,14 @@ async function captureWithoutAutoSolve(page,report) {
 // While Editing is set to Play the camera only reads, though automatic
 // solving is ticked: a solution on screen would give away the puzzle the user
 // means to solve. The playing video stays the display, with the outline over
-// it and the counts in the legend; nothing is solved (the camera starts no
-// solver, counted from the tap that opens it) and nothing freezes, also three
-// seconds on, the freeze's longest wait; the help line says why, and the
-// export records Play beside automatic solving. The shutter keeps the
-// reading, and Play is still on with the camera closed. Then Editing is set
-// back to Clues, and Worker to what it was.
+// it and the counts in the legend; the help line says why nothing is solved,
+// as the reading completes (read then: with a clue in doubt, the line that
+// asks for a clearer frame takes its place later); nothing is solved (the
+// camera starts no solver, counted from the tap that opens it) and nothing
+// freezes, also three seconds on, the freeze's longest wait; and the export
+// records Play beside automatic solving. The shutter saves the picture and
+// keeps the reading, and Play is still on with the camera closed. Then
+// Editing is set back to Clues, and Worker to what it was.
 async function readsOnlyInPlay(page,report) {
   await watchTrackReplies(page);
   await page.evaluate(()=>{
@@ -345,6 +347,11 @@ async function readsOnlyInPlay(page,report) {
     await page.waitForFunction(pattern=>{const d=document.getElementById("live-preview").dataset;
       const help=new RegExp(`^${pattern}$`).exec(document.getElementById("camera-help").textContent);
       return !!help&&d.recognised===help[1]&&d.uncertain===help[2]&&Number(d.recognised)+Number(d.uncertain)===14;},PLAY,{timeout:150000});
+    const read=await page.evaluate(()=>({line:document.getElementById("camera-help").textContent,
+      counts:["recognised","uncertain"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count"))}));
+    assert.equal(read.line.match(new RegExp(`^${PLAY}$`))?.[0],
+      `Clues read (${read.counts[0]} recognised, ${read.counts[1]} uncertain). Not solved automatically while Editing is set to Play; capture to review or play.`,
+      "the help line says why nothing is solved, with the legend's counts");
     await sleep(3000);
     const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
       return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
@@ -354,11 +361,10 @@ async function readsOnlyInPlay(page,report) {
       const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
       node("prepare").click();try{return JSON.parse(node("preview").textContent).settings;}finally{node("clear").click();}
     });
-    report.playCamera={live};
+    report.playCamera={read,live};
     assert.equal(live.view,"live","nothing freezes while Editing is set to Play");assert.equal(live.overlay,"outline");
     assert.equal(live.solution,0);assert.equal(live.paused,false);
     assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
-    assert.match(live.help,new RegExp(`^${PLAY}$`),"the help line still says why nothing is solved");
     assert.equal(live.solvers,0,"the camera started no solver");
     assert.equal(live.settings.playing,true,"the export records Play");assert.equal(live.settings.autoSolve,true,"beside automatic solving, still ticked");
     await shutterAfterVerification(page);
@@ -371,7 +377,7 @@ async function readsOnlyInPlay(page,report) {
     window.Worker=window.playWorker;
     const tool=document.getElementById("edit-tool");tool.value="value";tool.dispatchEvent(new Event("change",{bubbles:true}));
   }));
-  report.checks.push("while Editing is set to Play the camera only reads, though automatic solving is ticked: the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, the help line says why and the export records Play; the shutter keeps the reading");
+  report.checks.push("while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading");
 }
 // The live view never turns a reading (only a still photograph's is checked
 // for a turn): aimed at the paper a quarter turn round, with real OCR, it

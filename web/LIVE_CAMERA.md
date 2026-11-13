@@ -253,16 +253,21 @@ solving. Nothing is solved and nothing freezes, and the help line of a
 complete reading says "Clues read (30 recognised, 1 uncertain). Not solved
 automatically while Editing is set to Play; capture to review or play.",
 where without automatic solving it says "Automatic solving is off" in that
-place. The shutter takes the reading to the board, which is still in Play.
+place. A reading that looks turned, has unread marks or contradicts itself
+keeps the line it has under every setting, the last of them with its words
+"before a solution can be shown". The shutter saves the picture and keeps the
+reading; Review captured clues then takes it to the board under review, where
+nothing is solved and Editing is still set to Play.
 The camera reads Play with its settings at each call, as it does automatic
 solving, and keeps it out of the reading's identity; the camera's panel is
-modal, so Editing does not change while it is open. From the first line on
-the camera promises no solution it will not show: its aiming line is "Hold
-the grid steady. Recognition and solution appear here automatically." only
-where the previews solve, and "Hold the grid steady. Recognition appears here
-automatically." in Play and without automatic solving (where, until November
-2026, it promised a solution as well). The diagnostics record Play beside
-automatic solving, as `settings.playing`.
+modal, so Editing does not change while it is open. The camera's aiming line
+promises a solution only where the previews solve: it is "Hold the grid
+steady. Recognition and solution appear here automatically." there, and "Hold
+the grid steady. Recognition appears here automatically." in Play and without
+automatic solving (where, until November 2026, it promised a solution as
+well). The text the panel starts with, until the camera's first line, promises
+none either ("Hold the whole grid steady. Recognition appears here."). The
+diagnostics record Play beside automatic solving, as `settings.playing`.
 
 While the freeze waits, no solution is shown and the help line says "Solution
 found — hold the grid steady for a moment…", from the moment the solved

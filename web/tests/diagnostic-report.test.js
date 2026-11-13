@@ -59,8 +59,10 @@ test('the settings record automatic solving and the freeze wait, as booleans onl
  assert.doesNotMatch(JSON.stringify(d.snapshot()),/PRIVATE/);
 });
 // Whether Editing was set to Play, where the live camera only reads though
-// automatic solving is ticked: recorded beside it, as a boolean only.
-test('the settings record whether Editing was set to Play, as a boolean only',()=>{
+// automatic solving is ticked: recorded beside it as the boolean it is given
+// as, never as text (the list keeps a small whole number under any name, as
+// it does for the grid's size).
+test('the settings record whether Editing was set to Play, as a boolean and never as text',()=>{
  const d=createScanDiagnostics();d.begin('live',{type:'sudoku',rows:9,cols:9,autoSolve:true,playing:true});
  assert.equal(d.snapshot().settings.playing,true);assert.equal(d.snapshot().settings.autoSolve,true);
  d.configure({type:'sudoku',rows:9,cols:9,autoSolve:true,playing:false});assert.equal(d.snapshot().settings.playing,false);

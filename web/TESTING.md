@@ -1603,9 +1603,11 @@ its turn). They took 2.3 to 2.9 s and 2.1 to 2.6 s each in local Chromium runs
 solving off", came with the owner's choice of November 2026 that the camera
 only reads while Editing is set to Play: with automatic solving ticked, the
 real page's camera reads the paper, starts no solver and does not freeze,
-also three seconds on, which the step waits out; the help line and the export
-say why, and the shutter keeps the reading. It took 5.1 and 6.0 s in two
-local Chromium runs (2026-11-13).
+also three seconds on, which the step waits out; the help line says why as
+the reading completes, the export records Play, and the shutter keeps the
+reading. It took 5.1 and 6.0 s in two local Chromium runs (2026-11-13), and
+4.4 s in Chromium and 12.7 s in WebKit on the hosted runner (run
+43335500472).
 `web/tests/suite-docs.test.js` fails when this section
 does not name a phase the suite times.
 
