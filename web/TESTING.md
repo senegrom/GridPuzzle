@@ -770,7 +770,11 @@ layers`, `viewport after 320 px`, `automatic solving after live capture`,
 `paper's turn after a page lying sideways`, `createImageBitmap after
 transparent-fallback`, `file reading after a superseded import`, `camera after
 camera ownership`, `camera after confirmation`, `file reading after held
-imports` and `image decoding after an oversized WebP`. Nothing is printed for a
+imports` and `image decoding after an oversized WebP`. An eleventh step came
+later and runs the same way: `live_camera`'s "the camera in Play", after which
+`Editing after the camera in Play` sets Editing back to Clues (and `Worker`
+back to what it was before the step counted the solvers started). Nothing is
+printed for a
 call cut short or failed after a step's own failure, which is printed as
 before. `live_camera`'s report has `readsCutShort` after any failure, as
 before, since its `catch` reads the page after any failure: a call cut short
@@ -813,7 +817,8 @@ engines, their reports with the same fields at master and here, and
 first step, as it does on Windows, WebKit's report with the same seven reads at
 master and here and an empty `readsCutShort`. `web/tests/step-cleanups.test.js`
 runs each suite's `stepThenPutBack()` on its own and plays each of the ten
-steps, which the suites export for it (the four steps of `live_camera`, the
+steps, and the eleventh since ("the camera in Play"), which the suites export
+for it (the four steps of `live_camera`, the
 superseded import and the oversized WebP are functions of their own now, their
 steps unchanged), on a stand-in page that lets the step pass or fails it at a
 call inside it and then answers the call that puts the page back, fails it,
@@ -1455,7 +1460,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
 | `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure; uncaught errors thrown in the suite's page, in a tab it opens beside it and in a page in a context it opens each fail the engine though the suite carries on, all in `errors`, the other pages' with their URL; a close that never settles, with the browser left running or after it was closed past the harness, ends the run by itself all the same, in a process of its own: exit code 1, the timed-out close in `cleanupErrors` and on stderr, the next engine run and none of the processes Node started for the run left running | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), a captured reading's review in the editor (as many cells highlighted as the frozen picture shows yellow, with the reading's note), a captured reading that looks upside down (every digit highlighted under the turn note while its still is read again; read turned, the turned reading replaces it under review, read as it lies, it keeps its own flags and note, after a first note that the page may still be turned, pointing to Rotate; the check's task ends either way), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the camera with Editing set to Play and automatic solving ticked (it only reads: no solver started, no freeze, the help line and the export say why, the shutter keeps the reading), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), a captured reading's review in the editor (as many cells highlighted as the frozen picture shows yellow, with the reading's note), a captured reading that looks upside down (every digit highlighted under the turn note while its still is read again; read turned, the turned reading replaces it under review, read as it lies, it keeps its own flags and note, after a first note that the page may still be turned, pointing to Rotate; the check's task ends either way), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker in both pixel transports (a bitmap read back in the worker, which Chromium must decide for, and the page's own readback) with the same verdicts and corners, on a frame tracked at its own size and on a 1600 × 1600 one scaled to 1280 × 1280, and, wherever bitmaps are decided, the same pixels (within 2) and each transport's anchor verified on the other's pixels at its corners; transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking when `live-fixtures/` is there | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it with a reading of the new digit, every blank cell blank and no wrong clue unflagged (on some noisy frames the OCR misreads another clue, a 5 or a 1 as a 3, and flags it); where bitmaps are decided, a frame whose bitmap reads back transparent and one whose bitmap is 1 × 1 are each lost alone (the reading stays, read once, on bitmaps), also right after the change | `live-acceptance` |
@@ -1594,7 +1599,14 @@ capture into the editor: "a captured reading's review in the editor" (the
 cells and note the frozen picture showed) and "a captured reading that looks
 upside down, read again", turned and as it lies (the still read again for
 its turn). They took 2.3 to 2.9 s and 2.1 to 2.6 s each in local Chromium runs
-(2026-10-20 and 21). `web/tests/suite-docs.test.js` fails when this section
+(2026-10-20 and 21). "The camera in Play", after "live capture with automatic
+solving off", came with the owner's choice of November 2026 that the camera
+only reads while Editing is set to Play: with automatic solving ticked, the
+real page's camera reads the paper, starts no solver and does not freeze,
+also three seconds on, which the step waits out; the help line and the export
+say why, and the shutter keeps the reading. It took 5.1 and 6.0 s in two
+local Chromium runs (2026-11-13).
+`web/tests/suite-docs.test.js` fails when this section
 does not name a phase the suite times.
 
 The twelve faint structural variants are over a third of the suite. It used

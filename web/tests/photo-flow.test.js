@@ -369,6 +369,26 @@ for (const [freezeWait, autoSolve] of [[true, false], [false, true]])
     assert.equal(settings.freezeWait, freezeWait, "the diagnostics record the freeze's wait from its box");
     assert.equal(settings.autoSolve, autoSolve, "and automatic solving from its own");
   });
+// Editing set to Play (#edit-tool): the camera's settings say so, read at
+// each call, and the camera's previews then solve nothing (live-camera.js);
+// the diagnostics record it with the live scan's settings. Automatic solving
+// keeps its own box: Play does not untick it, and neither is told from the
+// other.
+for (const [tool, autoSolve] of [["play", true], ["play", false], ["value", true], ["value", false], ["cage", true], ["inequality", true]])
+  test(`a camera opened with Editing set to ${tool} and automatic solving ${autoSolve ? "on" : "off"} tells the live view ${tool === "play" ? "that" : "nothing of"} Play`, async (t) => {
+    const h = await cameraHarness(t);
+    h.$("edit-tool").value = tool; h.$("auto-solve").checked = autoSolve;
+    await h.$("camera").onclick();
+    const settings = h.liveOptions.getSettings;
+    assert.equal(settings().playing, tool === "play");
+    assert.equal(settings().autoSolve, autoSolve, "automatic solving from its own box");
+    const recorded = h.diagnostics.snapshot().settings;
+    assert.equal(recorded.playing, tool === "play", "the diagnostics record Play");
+    assert.equal(recorded.autoSolve, autoSolve, "and automatic solving from its own box");
+    h.$("edit-tool").value = tool === "play" ? "value" : "play";
+    assert.equal(settings().playing, tool !== "play", "read at each call");
+    assert.equal(settings().autoSolve, autoSolve);
+  });
 
 // --- photo-flow: the frozen solution and Clear --------------------------
 test("freezing pauses the video but keeps the camera on; Clear plays it again before scanning resumes", async (t) => {

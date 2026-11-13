@@ -244,6 +244,26 @@ the reading on screen and resets nothing. Without automatic solving nothing
 freezes and the setting has no effect; it stays enabled, so it can be set
 beforehand.
 
+**While Editing is set to Play** the previews solve nothing, though automatic
+solving is ticked: the user means to solve the puzzle, and a solution on
+screen would give it away (the owner's choice of November 2026; a still
+photograph's clear reading is left unsolved there too, see
+[README.md](README.md)). The camera then only reads, as without automatic
+solving. Nothing is solved and nothing freezes, and the help line of a
+complete reading says "Clues read (30 recognised, 1 uncertain). Not solved
+automatically while Editing is set to Play; capture to review or play.",
+where without automatic solving it says "Automatic solving is off" in that
+place. The shutter takes the reading to the board, which is still in Play.
+The camera reads Play with its settings at each call, as it does automatic
+solving, and keeps it out of the reading's identity; the camera's panel is
+modal, so Editing does not change while it is open. From the first line on
+the camera promises no solution it will not show: its aiming line is "Hold
+the grid steady. Recognition and solution appear here automatically." only
+where the previews solve, and "Hold the grid steady. Recognition appears here
+automatically." in Play and without automatic solving (where, until November
+2026, it promised a solution as well). The diagnostics record Play beside
+automatic solving, as `settings.playing`.
+
 While the freeze waits, no solution is shown and the help line says "Solution
 found — hold the grid steady for a moment…", from the moment the solved
 reading is published, also when it returns after a blink. A reading that
@@ -340,8 +360,9 @@ camera hands the page's idle or warming interpreter to the previews (otherwise
 the previews load their own when the camera opens), and closing the camera
 hands it back unless a preview search is running, which only termination can
 stop. Solve after live scanning therefore starts without downloading and
-starting Python again. Without automatic solving the camera takes no
-interpreter, and the page's is released while the camera is open. The preview
+starting Python again. Without automatic solving, or while Editing is set to
+Play, the camera takes no interpreter and warms none, and the page's is
+released while the camera is open. The preview
 runtime is warmed once per camera session and reloaded in the background after
 a search budget had to terminate it. Realignment cancels an active search but
 keeps an idle or warming worker; the first frame and settings changes do not
@@ -981,7 +1002,8 @@ Once a complete unique solution is shown, the view is frozen and nothing is
 read again until Clear; before that, while the freeze waits (at most three
 seconds, for a fresh frame or, with the setting for clearer clues on, for a
 retry), targeted retries and a re-read of a much sharper frame can still run.
-A complete reading without automatic solving is not read
+A complete reading that is not solved (without automatic solving, or while
+Editing is set to Play) is not read
 again until the picture or the settings change, or autofocus yields a
 substantially sharper frame. An unresolved scene retries with a doubling
 interval (3, 6, 12, then 24 seconds), so an unreadable page does not keep OCR
@@ -1201,7 +1223,11 @@ Unit tests (`node --test web/tests/*.test.js`):
   and tracking core with a fake clock: it freezes on its own verified frame
   (also inside a tick, which then samples no frame), and only on a
   verified unique solution, never on a provisional, multiple or unsolvable
-  reading or without automatic solving; nothing is sampled, detected, tracked,
+  reading, without automatic solving or while Editing is set to Play (no
+  solve, no line that speaks of a solution, the help line naming Play, also
+  with automatic solving unticked as well; the reading on screen is solved,
+  and freezes, once Play is left; the aiming line promises a solution only
+  where the previews solve); nothing is sampled, detected, tracked,
   read or painted while frozen: held replies and an abandoned detection are
   fenced without cancelling the geometry worker (its frame released, also
   when its reply comes after Clear), and the reading is retired
@@ -1301,7 +1327,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   the help line, which names the retry once, or keeps the wait's text. From its first frame the camera records the setting
   with the scan's settings in the diagnostics.
   `live-session.test.js` covers `refining`, `keep` (the line held as it
-  stands), the counted status without automatic solving and hiding with
+  stands), the counted status without automatic solving, the one that names
+  Play where Play is why nothing is solved, and hiding with
   nothing ever found (no loss clock, nothing written), a merged retry that
   changes a clue (the solution withdrawn, the changed puzzle solved, and no
   solution kept when it has none; a clue read as before keeps the solution), a
@@ -1327,7 +1354,8 @@ Unit tests (`node --test web/tests/*.test.js`):
   the panel, with that picture's label and counts, and the camera reading the
   freeze's wait from its checkbox at every call, which the diagnostics record
   with the scan's settings, each box from itself (`diagnostic-report.test.js`:
-  as a boolean only).
+  as a boolean only), and Play from the Editing tool at every call, recorded
+  beside them and told from automatic solving, which keeps its own box.
   `app.test.js` pins the checkbox's place after automatic solving, unticked,
   and runs app.js's own code to save and restore it with its neighbours.
 - `live-sampling.test.js`: what the camera samples, on the production camera,
@@ -1366,14 +1394,17 @@ Unit tests (`node --test web/tests/*.test.js`):
   reading is retired, nor a closed camera (`diagnostic-report.test.js`: its
   window and allowlist).
 - `live-camera-recovery.test.js`: settings changes (a change of automatic
-  solving or the freeze's wait leaves a pending detection alone), the
+  solving, of Play or of the freeze's wait leaves a pending detection alone;
+  the previews' solver is warmed neither without automatic solving nor in
+  Play, and once when either ends), the
   detection deadline, Start/Stop cycles and retired completions, with a
   controlled detector, clock and canvas, a detected grid that does not fit
   the rules (the reason held on the help line, no outline), and the diagnostics' picture while
   tracking is paused (the video's current frame, unverified;
   `diagnostic-retirement.test.js` checks that the report releases such a frame
   once encoded).
-  `solver-handoff.test.js`: the interpreter handoff.
+  `solver-handoff.test.js`: the interpreter handoff, none without automatic
+  solving or with Editing set to Play.
 - `live-tracker.test.js` and `clue-recovery.test.js`: stopped workers, late
   results, failures, changed sources and manually protected cells in the
   tracking worker and targeted retries; `clue-reread.test.js`: the editor's
@@ -1513,7 +1544,11 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   behind the still and attached, the camera track still on, the picture
   unchanged, the chip's contrast), a live capture without automatic solving
   (the playing video, the outline and the legend counts; a fresh verified frame
-  stored with its reading and shown exactly as stored), the freeze's wait for
+  stored with its reading and shown exactly as stored), the camera with
+  Editing set to Play and automatic solving ticked (it only reads: no solver
+  started from the tap that opens it, nothing frozen three seconds on, the
+  help line and the export saying why, the reading kept by the shutter, Play
+  still on with the camera closed), the freeze's wait for
   clearer clues, off by default (a solved reading with a retryable yellow clue
   freezes without waiting for its retries) and ticked through its checkbox
   (saved, restored after a reload, recorded in the diagnostics, and holding

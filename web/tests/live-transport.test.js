@@ -948,7 +948,8 @@ for (const transport of ["bitmap", "imagedata"]) test(`a verification's ${transp
 // worker stays warm), so the next one starts at once; no anchor of the old
 // worker is asked for again.
 test("bitmaps given up while a reading is tracked restart acquisition once, at once, and ask the new worker for no old anchor", async (t) => {
-  const AIMING = "Hold the grid steady. Recognition and solution appear here automatically.";
+  // The aiming line without a solver (automatic solving off): no solution promised.
+  const AIMING = "Hold the grid steady. Recognition appears here automatically.";
   const h = simulation(t);
   assert.ok(await h.until(() => h.view.dataset.recognised === "4"));
   assert.equal(h.view.dataset.overlay, "outline");
@@ -1133,7 +1134,7 @@ test("a 25 x 25 grid whose verifications take 2.5 s fails nothing; the help line
   // starts: the candidate the reply verified is the scene's first frame.
   assert.ok(await h.until(() => h.help !== TOO_SLOW, 300), "the line gives way");
   assert.ok(h.now - adoptedAt <= 200, `at the next heartbeat (${h.now - adoptedAt} ms after the adoption)`);
-  assert.equal(h.help, "Hold the grid steady. Recognition and solution appear here automatically.");
+  assert.equal(h.help, "Hold the grid steady. Recognition appears here automatically.", "no solver here: no solution promised");
   assert.ok(await h.until(() => h.view.dataset.recognised === "4", 10000), "read once replies come in time");
   assert.notEqual(h.help, TOO_SLOW);
   assert.equal(h.camera.stats.recovery.failures, 0);

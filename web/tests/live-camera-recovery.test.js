@@ -78,15 +78,18 @@ test("changing live settings immediately replaces a pending grid detection", asy
   assert.equal(h.readings.length, 1, "the replacement detector must continue into OCR");
 });
 
-// Automatic solving and the freeze's wait for clearer clues apply to the
-// reading on screen: changing either starts nothing over.
-test("changing automatic solving or the freeze's wait leaves a pending grid detection alone", async (t) => {
-  const h = harness(t, undefined, { autoSolve: true, freezeWait: false }); await h.advance(100);
+// Automatic solving, Play (Editing set to it) and the freeze's wait for
+// clearer clues apply to the reading on screen: changing any of them starts
+// nothing over.
+test("changing automatic solving, Play or the freeze's wait leaves a pending grid detection alone", async (t) => {
+  const h = harness(t, undefined, { autoSolve: true, playing: false, freezeWait: false }); await h.advance(100);
   assert.equal(h.detections.length, 1);
   const before = h.cancellations;
   h.settings.freezeWait = true; await h.advance(100);
   h.settings.autoSolve = false; await h.advance(100);
+  h.settings.playing = true; await h.advance(100);
   h.settings.freezeWait = false; await h.advance(100);
+  h.settings.playing = false; await h.advance(100);
   assert.equal(h.cancellations, before, "nothing was cancelled");
   assert.equal(h.detections.length, 1, "nor started again");
   await h.result(); await h.advance(700); await h.result();
@@ -304,6 +307,13 @@ test('auto-solve off never prewarms the live solver; enabling warms it once',asy
  let count=0;const h=harness(t,{prepare(){count++;},cancel(){},solve:async()=>null},{autoSolve:false});
  await h.advance(100);assert.equal(count,0);h.settings.autoSolve=true;await h.advance(100);assert.equal(count,1);
  await h.advance(200);assert.equal(count,1);h.settings.autoSolve=false;await h.advance(100);assert.equal(count,1);
+});
+// While Editing is set to Play the previews solve nothing, though automatic
+// solving is ticked, so nothing warms their solver until Play is left.
+test('Play never prewarms the live solver, though automatic solving is ticked; leaving Play warms it once',async t=>{
+ let count=0;const h=harness(t,{prepare(){count++;},cancel(){},solve:async()=>null},{autoSolve:true,playing:true});
+ await h.advance(300);assert.equal(count,0);h.settings.playing=false;await h.advance(100);assert.equal(count,1);
+ await h.advance(200);assert.equal(count,1);h.settings.playing=true;await h.advance(100);assert.equal(count,1);
 });
 test('unchanged heartbeat and pre-tracking views skip redundant paints without skipping validation',async t=>{
  const h=harness(t);await h.advance(100);await h.result();await h.advance(400);await h.result();

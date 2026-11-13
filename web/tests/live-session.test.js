@@ -96,6 +96,28 @@ test('the status of a complete reading without automatic solving names its count
  auto=true;s.validate();auto=false;s.validate();
  assert.equal(statuses.at(-1),'Clues read (1 recognised, 1 uncertain). Automatic solving is off; capture to review or play.');
 });
+// While Editing is set to Play the camera's previews solve nothing either
+// (live-camera.js: autoSolve() is then false, whatever its box says), and the
+// status says that Play is why, not that automatic solving is off.
+test('the status of a complete reading left unsolved while Editing is set to Play says so, with its counts',async t=>{
+ const PLAY='Clues read (1 recognised, 1 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.';
+ const statuses=[],d=defer();let auto=false,playing=true,solves=0;
+ const s=createLiveSession({read:()=>d.promise,solve:()=>{solves++;return new Promise(()=>{});},cancelRead(){},cancelSolve(){},
+  autoSolve:()=>auto,playing:()=>playing,onChange(){},onStatus:m=>statuses.push(m),isCurrent:()=>true,sameScene:()=>true});
+ const corners=[{x:0,y:0},{x:20,y:0},{x:20,y:20},{x:0,y:20}];
+ s.start();t.after(()=>s.stop());
+ for(let i=0;i<2;i++)s.observe({key:'2',width:21,height:21,corners,sharpness:200,image:{width:21,height:21}});
+ const puzzle=makePuzzle('latinsquare',2);puzzle.cells=[1,2,null,null];
+ d.resolve({puzzle,markedCells:[0,1],cellUncertain:[1],notes:[]});await flush();
+ assert.equal(statuses.at(-1),PLAY);assert.equal(solves,0);
+ // Play left and taken up again: the solve that began is withdrawn with the same line.
+ playing=false;auto=true;s.validate();assert.equal(solves,1);
+ playing=true;auto=false;s.validate();
+ assert.equal(statuses.at(-1),PLAY);assert.equal(s.preview.result,null);assert.equal(s.busy,false);
+ // Outside Play, a solve withdrawn by unticking automatic solving has that box's line.
+ playing=false;auto=true;s.validate();auto=false;s.validate();
+ assert.equal(statuses.at(-1),'Clues read (1 recognised, 1 uncertain). Automatic solving is off; capture to review or play.');
+});
 
 // keep(): the camera holds the help line as it stands while a solved reading
 // is about to freeze, so that neither the session's statuses nor a text of

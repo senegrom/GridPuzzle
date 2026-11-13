@@ -15,7 +15,9 @@ import { makePuzzle } from "../model.js";
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 const GRID = 440, CELLS = 4;
-const AIMING = "Hold the grid steady. Recognition and solution appear here automatically.";
+// The aiming line of a camera whose previews solve nothing (the settings here
+// have automatic solving off): it promises no solution.
+const AIMING = "Hold the grid steady. Recognition appears here automatically.";
 const GUIDANCE = "Keep the whole grid in view, in even light.";
 const STALLED = "Waiting for a new camera frame. Old readings are hidden; capture to review.";
 

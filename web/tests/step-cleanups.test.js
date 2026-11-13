@@ -11,7 +11,7 @@ import { format } from 'node:util';
 // it, in live_camera, browser_regressions and scanner_repair (each once in
 // its step's finally), which go through watch.cjs's readWithin() with
 // READ_LIMIT, the step's own failure first: each suite's stepThenPutBack() on
-// its own; each of the ten steps that have such a call, played on a stand-in
+// its own; each of the eleven steps that have such a call, played on a stand-in
 // page that passes the step or fails it and then answers the call, fails it,
 // throws as it is called or never answers; the report each suite hands those
 // steps; and live_camera run as it is, in a process of its own, on a stand-in
@@ -271,8 +271,9 @@ const PUZZLE = { type: 'sudoku', rows: 9, cols: 9, cells: [5, 3, null, null, 7] 
 const LAYOUT = { viewfinder: 400, row: 48, rowOverflow: false, shutter: { top: 500, width: 140, height: 48 },
   clear: { top: 500, right: 300, width: 140, height: 48 }, start: { bottom: 450 }, panel: { right: 320 }, counts: 4, legend: 20, bareLegend: 20 };
 
-// The ten steps after which a call puts the page back (once in the step's
-// finally), each as a test plays it: its suite and the name its call has in
+// The eleven steps after which a call puts the page back (once in the step's
+// finally, for the ten that had one; the camera in Play came later), each as
+// a test plays it: its suite and the name its call has in
 // the report, how to run it on a page and a report as its suite does, the
 // call that puts the page back, a call inside the step that a failing step
 // fails at, what a page answers for the step to pass, what the suite does
@@ -306,6 +307,22 @@ const SITES = [
       return visible(call);
     },
     check: 'without automatic solving the live video stays the display with the outline and legend counts; the shutter stores a fresh verified frame with its reading and shows exactly that picture' },
+  { suite: 'live_camera', name: 'Editing after the camera in Play',
+    run: (page, report) => camera.readsOnlyInPlay(page, report),
+    isPutBack: (call) => evaluates(call, 'window.Worker=window.playWorker;'),
+    failAt: (call) => call.kind === 'click' && call.selector === '#camera',
+    answer: (call) => {
+      if (evaluates(call, 'editing:document.getElementById("edit-tool").value')) return { editing: 'play', autoSolve: true };
+      if (evaluates(call, 'solvers:window.solversStarted')) return { view: 'live', overlay: 'outline', solution: 0, paused: false,
+        legend: ['10', '4', null, null], solvers: 0,
+        help: 'Clues read (10 recognised, 4 uncertain). Not solved automatically while Editing is set to Play; capture to review or play.' };
+      if (evaluates(call, '.textContent).settings;')) return { type: 'auto', playing: true, autoSolve: true };
+      if (call.kind === 'textContent' && call.selector === '#use-live-capture') return 'Review captured clues';
+      if (call.kind === 'inputValue' && call.selector === '#edit-tool') return 'play';
+      return visible(call);
+    },
+    waits: [3000],
+    check: 'while Editing is set to Play the camera only reads, though automatic solving is ticked: the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, the help line says why and the export records Play; the shutter keeps the reading' },
   { suite: 'live_camera', name: 'paper\'s turn after a page lying sideways',
     run: (page, report) => camera.pageLyingSideways(page, report),
     isPutBack: (call) => evaluates(call, 'window.liveTurn=0;'),
@@ -547,6 +564,7 @@ test('each suite hands the steps that put the page back its engine\'s report', (
   for (const call of ['time("viewfinder layers",()=>layersAtEachScreen(page,report,server.base));',
     'time("320 px",()=>narrowScreen(page,report));',
     'time("live capture with automatic solving off",()=>captureWithoutAutoSolve(page,report));',
+    'time("the camera in Play",()=>readsOnlyInPlay(page,report));',
     'time("a page lying sideways",()=>pageLyingSideways(page,report));'])
     assert.ok(live.includes(call), call);
   const browser = source('browser_regressions.cjs');
