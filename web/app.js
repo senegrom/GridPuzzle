@@ -1507,7 +1507,9 @@ $("apply-json").onclick = () => {
 const { stopCamera, taskStopped, boardLoaded } = setupPhotoFlow({
   savePicture: setupCaptureGallery($),
   // The page runs one Python interpreter. The camera's previews take over
-  // an idle or warming one when they will solve; otherwise it is released.
+  // an idle or warming one when they will solve; without automatic solving
+  // it is released. While Editing is set to Play the camera asks for neither
+  // and the interpreter stays here, alive (photo-flow.js openCamera).
   releaseSolver: (handOff) => {
     const w = worker;
     worker = null;

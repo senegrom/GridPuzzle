@@ -326,10 +326,12 @@ const SITES = [
       if (evaluates(call, '.textContent).settings;')) return { type: 'auto', playing: true, autoSolve: true };
       if (call.kind === 'textContent' && call.selector === '#use-live-capture') return 'Review captured clues';
       if (call.kind === 'inputValue' && call.selector === '#edit-tool') return 'play';
+      // With the camera closed: the page's interpreter, as it was before it.
+      if (evaluates(call, 'warm:liveApp.getState().solverWarm')) return { warm: true, started: 0 };
       return visible(call);
     },
     waits: [3000],
-    check: 'while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading' },
+    check: 'while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading; the page\'s interpreter, warm before the camera opened, is still the page\'s and warm once it has closed' },
   { suite: 'live_camera', name: 'paper\'s turn after a page lying sideways',
     run: (page, report) => camera.pageLyingSideways(page, report),
     isPutBack: (call) => evaluates(call, 'window.liveTurn=0;'),
@@ -496,6 +498,56 @@ describe('live_camera: the help line three seconds on, in "the camera in Play"',
     const { error, report } = await play(t, line);
     assert.equal(error, undefined);
     assert.deepEqual(report.checks, [PLAY.check]);
+  });
+});
+
+// "The camera in Play", once its camera has closed: the page's interpreter
+// must still be warm, and be the one the page had before the camera (none
+// started from the tap on). The step has the page start it and waits for it
+// before the tap, by loading the board on the page again, and fails where it
+// is gone afterwards, as it was until November 2026, when the camera had it
+// released in Play, or where another was started meanwhile, as a camera that
+// had it released and started one again as it closed would. The page is put
+// back all the same, once.
+describe('live_camera: the page\'s interpreter after "the camera in Play"', () => {
+  const PLAY = SITES.find(({ name }) => name === 'Editing after the camera in Play');
+  const play = async (t, interpreter) => {
+    const counted = limitsCounted(t);
+    try {
+      const site = { ...PLAY, answer: (call, state) =>
+        (evaluates(call, 'warm:liveApp.getState().solverWarm') ? interpreter : PLAY.answer(call, state)) };
+      const page = standInPage(site, true, 'answer'), report = { browser: 'chromium', cleanupErrors: [], checks: [] };
+      const seen = outcomeOf(site.run(page, report));
+      await tick();
+      t.mock.timers.tick(3000); await tick();
+      assert.notEqual(seen.outcome, null, 'the step has ended');
+      assert.equal(page.calls.filter((call) => call.putBack).length, 1, 'the page is put back, once');
+      return { error: seen.outcome.error, report, page };
+    } finally { counted.restore(); }
+  };
+  test('the step has the page start its interpreter and waits for it, before the tap that opens the camera', async (t) => {
+    const { error, report, page } = await play(t, { warm: true, started: 0 });
+    assert.equal(error, undefined);
+    assert.deepEqual(report.checks, [PLAY.check]);
+    assert.deepEqual(report.playCamera.interpreter, { warm: true, started: 0 });
+    const at = (found) => page.calls.findIndex(found);
+    const loaded = at((call) => evaluates(call, 'liveApp.loadPuzzle(liveApp.getState().puzzle)')),
+      waited = at((call) => call.kind === 'waitForFunction' && call.source === '()=>liveApp.getState().solverWarm===true'),
+      tapped = at((call) => call.kind === 'click' && call.selector === '#camera'),
+      closed = at((call) => call.kind === 'click' && call.selector === '#close-camera'),
+      read = at((call) => evaluates(call, 'warm:liveApp.getState().solverWarm'));
+    assert.ok(loaded >= 0 && loaded < waited && waited < tapped, `loaded (${loaded}), waited for (${waited}), then the tap (${tapped})`);
+    assert.ok(closed > tapped && read > closed, `read (${read}) once the camera has closed (${closed})`);
+  });
+  for (const [what, interpreter, message] of [
+    ['is gone', { warm: false, started: 0 }, /^the page's interpreter is still warm with the camera closed/],
+    ['is another, started since the tap', { warm: true, started: 1 }, /^and it is the one the page had before the camera/],
+    ['is another that is not warm yet', { warm: false, started: 1 }, /^the page's interpreter is still warm with the camera closed/],
+  ]) test(`the step fails where the interpreter ${what}`, async (t) => {
+    const { error, report } = await play(t, interpreter);
+    assert.equal(error?.name, 'AssertionError');
+    assert.match(error.message, message);
+    assert.deepEqual(report.checks, []);
   });
 });
 
