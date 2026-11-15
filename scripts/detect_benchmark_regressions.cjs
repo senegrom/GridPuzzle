@@ -13,6 +13,7 @@ const { execFile, spawn } = require("node:child_process");
 const { items, parseOptions, runDetectionBenchmark } = require("../corpus/detect_benchmark.cjs");
 const { writeReport } = require("../corpus/benchmark-runner.cjs");
 const { running, sleep, temporaryDirectory, watch } = require("./harness.cjs");
+const { staticServer } = require("./watch.cjs");
 
 // An 8-bit greyscale PNG of `width` x `height` pixels.
 function greyPng(width, height, pixel) {
@@ -134,7 +135,7 @@ module.exports = async function detectionFailure(engineName, png) {
     const report = await runDetectionBenchmark({ items: items(options), options }, {
       async launch() { browser = await engine.launch({ headless: true }); watched = watch(browser); return browser; },
       startServer() {
-        server = spawn("python", ["-m", "http.server", "8782", "--bind", "127.0.0.1", "--directory", "_site"], { stdio: "ignore" });
+        server = spawn("python", staticServer(8782, "_site"), { stdio: "ignore" });
         return server;
       },
       writeReport(file, value) { checkpoints.push(value.completedImages); writeReport(file, value); },
