@@ -423,49 +423,64 @@ async function pageLyingSideways(page,report) {
 }
 // The camera panel's help line when the camera is opened again: the text the
 // panel starts with (photo-flow.js CAMERA_START_HELP), not the last line of
-// the session before, which the closed panel still holds. Until November 2026
+// the session before, which a closed panel still holds. Until November 2026
 // nothing set the line back, and a panel opened again showed that line until
 // the camera wrote its first, once the video played: "Solution preview —
-// frozen. …" after a session that froze, as here. The line is read as the
-// tap is heard on the document, after the button's own handler has run up to
-// its wait for the video, and every line written from the tap on is kept
-// until the camera's first: the starting text comes first, and with nothing
-// timed. The listener hears one tap and the observer stops at the camera's
-// first line. The page is then loaded afresh, with its camera fixture, as
-// after the other phases that end on a frozen view: the preview canvas keeps
-// the first session's "frozen" mark and counts until the second session
-// draws, and where that session is closed before it has drawn (WebKit on the
-// hosted runner) the next phase's wait for a freeze would pass at once on the
-// old mark.
+// frozen. …" after a session that froze, "The grid looks sideways. …" after
+// the phase before this one. That phase's line is the old line here; on a
+// page whose camera has not been opened yet, the phase opens and closes it
+// once for one. The line is read as the tap is heard on the document, which
+// is after the button's own handler and, with the suite's camera, which
+// answers at once, after the panel is shown; and every line written from the
+// tap on is kept up to the camera's own first line, its aiming line (WebKit
+// has the page's offer of Start preview before it). The starting text is the
+// first of them and the old line is none of them. Nothing here is timed. The
+// listener hears one tap and the observer stops at the aiming line.
+// The page is then loaded afresh with its camera fixture. The new session may
+// have read and frozen by the time it is closed, and the preview canvas keeps
+// a session's "frozen" mark and counts until the next session draws: the wait
+// for a freeze in the phase after this one would pass on such a mark at once,
+// as it did in WebKit on the hosted runner when this phase still left one.
 const CAMERA_START_HELP="Hold the whole grid steady. Recognition appears here.";
+// What the phase leaves in the page to hear the tap and keep the lines.
+// `aiming` is the source of a pattern for the camera's own first line. It
+// runs in the page: web/tests/camera-opened-again.test.js runs it on a
+// stand-in for one.
+function watchOpening(aiming) {
+  const help=document.getElementById("camera-help"),seen=window.openedAgain={tap:null,lines:[],aimed:false};
+  const watch=new MutationObserver(()=>{
+    seen.lines.push(help.textContent);
+    if(new RegExp(aiming).test(help.textContent)){seen.aimed=true;watch.disconnect();}
+  });
+  watch.observe(help,{childList:true,characterData:true,subtree:true});
+  document.addEventListener("click",function heard(event){
+    if(!event.target?.closest?.("#camera"))return;
+    seen.tap=help.textContent;document.removeEventListener("click",heard);
+  });
+}
+// The camera's aiming line, whichever of its three (live-camera.js aiming()).
+const AIMING_LINE="^Hold the grid steady\\. Recognition (and solution )?appears? here automatically\\.$|^Automatic reading is switched off\\.";
 async function openedAgain(page,report,base) {
   await page.evaluate(()=>{window.liveMode="grid";});
-  await solveLive(page);
-  await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen");
-  const frozen=await page.textContent("#camera-help");
-  assert.match(frozen,/^Solution preview — frozen\./,"the session before froze, and its help line says so");
-  await page.click("#close-camera");
-  assert.equal(await page.textContent("#camera-help"),frozen,"the closed panel keeps that line");
-  await page.evaluate(start=>{
-    const help=document.getElementById("camera-help"),seen=window.openedAgain={tap:null,lines:[]};
-    const watch=new MutationObserver(()=>{seen.lines.push(help.textContent);if(help.textContent!==start)watch.disconnect();});
-    watch.observe(help,{childList:true,characterData:true,subtree:true});
-    document.addEventListener("click",function heard(event){
-      if(!event.target?.closest?.("#camera"))return;
-      seen.tap=help.textContent;document.removeEventListener("click",heard);
-    });
-  },CAMERA_START_HELP);
+  if(await page.textContent("#camera-help")===CAMERA_START_HELP){
+    await startLive(page);
+    await page.waitForFunction(start=>document.getElementById("camera-help").textContent!==start,CAMERA_START_HELP,{timeout:150000});
+    await page.click("#close-camera");
+  }
+  const old=await page.textContent("#camera-help");
+  assert.ok(old&&old!==CAMERA_START_HELP,`the closed panel holds the last line of the session before (${JSON.stringify(old)})`);
+  await page.evaluate(watchOpening,AIMING_LINE);
   await startLive(page);
-  await page.waitForFunction(start=>openedAgain.lines.some(line=>line!==start),CAMERA_START_HELP,{timeout:150000});
+  await page.waitForFunction(()=>openedAgain.aimed===true,null,{timeout:150000});
   const opened=await page.evaluate(()=>window.openedAgain);
-  report.openedAgain={frozen,...opened};
+  report.openedAgain={old,...opened};
   assert.equal(opened.tap,CAMERA_START_HELP,"the tap that opens the camera again sets the panel's starting text");
   assert.equal(opened.lines[0],CAMERA_START_HELP,"and it is the first line written from that tap on");
-  assert.ok(!opened.lines.includes(frozen),`the frozen solution's line is not written again (${JSON.stringify(opened.lines)})`);
-  assert.equal(await page.locator("#camera-panel").isVisible(),true);
+  // The last line kept is the camera's aiming line, which is the old line too where the session before left no other.
+  assert.ok(!opened.lines.slice(0,-1).includes(old),`the old line is not written again before the camera's own first line (${JSON.stringify(opened.lines)})`);
   await page.click("#close-camera");
   await idlePage(page,base);await fixture(page);
-  report.checks.push("a camera opened again after a session that froze starts with the panel's starting text: the tap sets it, before the camera's first line, and the frozen solution's line is not shown again");
+  report.checks.push("a camera opened again starts with the panel's starting text: the tap sets it, it is the first line written from the tap on, and the line of the session before is not written again before the camera's own first line");
 }
 async function run() {
   const server=await serve();
@@ -886,5 +901,5 @@ async function run() {
   } finally{server.close();}
 }
 module.exports = { run, readAfterFailure, stepThenPutBack, layersAtEachScreen, narrowScreen, captureWithoutAutoSolve, readsOnlyInPlay,
-  pageLyingSideways, openedAgain, CAMERA_START_HELP };
+  pageLyingSideways, openedAgain, watchOpening, CAMERA_START_HELP, AIMING_LINE };
 main(module,run);

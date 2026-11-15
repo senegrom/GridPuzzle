@@ -213,23 +213,35 @@ test("hiding the page keeps a captured still on screen but releases a live camer
 // last line of the session before: the frozen solution's after a freeze, also
 // with Editing set to Play since, or the shutter's after Retake. `shown` is
 // the help line at each moment the panel is shown, so an old line that was
-// on screen for that moment is in it.
-test("the camera's help line starts every session with the panel's starting text, whatever line the session before left", async (t) => {
+// on screen for that moment is in it. Under every setting: the text is the
+// same whatever Editing is set to and whether automatic solving is ticked,
+// also where the setting changed between two sessions, as in the case the
+// owner saw (a freeze, then Play).
+for (const [settings, first, then] of [
+  ["as the page is installed", { tool: "value", solve: true }, { tool: "value", solve: true }],
+  ["with Editing set to Play", { tool: "play", solve: true }, { tool: "play", solve: true }],
+  ["with automatic solving unticked", { tool: "value", solve: false }, { tool: "value", solve: false }],
+  ["with Editing set to Play after a session that froze under Clues", { tool: "value", solve: true }, { tool: "play", solve: true }],
+  ["with automatic solving unticked after a session that froze with it ticked", { tool: "value", solve: true }, { tool: "value", solve: false }],
+]) test(`the camera's help line starts every session with the panel's starting text, whatever line the session before left, ${settings}`, async (t) => {
   const { CAMERA_START_HELP } = await import("../photo-flow.js");
   const h = await cameraHarness(t, { capture: stillPicture() }), help = h.$("camera-help"), panel = h.$("camera-panel"), shown = [];
   let hidden = panel.hidden;
   Object.defineProperty(panel, "hidden", { get: () => hidden, set(value) { hidden = value; if (!value) shown.push(help.textContent); } });
+  const set = ({ tool, solve }) => { h.$("edit-tool").value = tool; h.$("auto-solve").checked = solve; };
   const opens = async (button, when) => {
     const before = shown.length;
     await h.$(button).onclick();
     assert.equal(help.textContent, CAMERA_START_HELP, when);
     assert.deepEqual(shown.slice(before), [CAMERA_START_HELP], `the panel is shown once, with that line (${when})`);
   };
+  set(first);
   await opens("camera", "at the first opening");
   const FROZEN = "Solution preview — frozen. Check the clues and rules. Save picture keeps it; Clear returns to the live camera.";
   help.textContent = FROZEN; // The camera's line at a freeze.
   h.$("close-camera").onclick();
   assert.equal(help.textContent, FROZEN, "a closed panel keeps its last line");
+  set(then);
   await opens("camera", "opened again after a session that froze");
   await h.$("take-photo").onclick(); await tick();
   assert.match(help.textContent, /^Picture saved in this browser\./, "the shutter's own line");
