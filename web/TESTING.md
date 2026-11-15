@@ -1614,6 +1614,18 @@ reading. It took 5.1 and 6.0 s in two local Chromium runs (2026-11-13), and
 `web/tests/suite-docs.test.js` fails when this section
 does not name a phase the suite times.
 
+"A camera opened again", after "a page lying sideways", came with the owner's
+choice of November 2026 that the camera's panel starts every session with its
+starting text: a session that freezes is closed, and when the camera is opened
+again the help line is that text as the tap is heard, and it is the first line
+written from the tap on, before the camera's own; the frozen solution's line,
+which the panel showed again for that moment until then, is not written.
+`web/tests/camera-opened-again.test.js` plays the phase on a stand-in page
+that answers as the page does now, and as it did before, which fails it. In
+local Chromium it took 4.7 s run by itself, and 38.4 s inside a run of the
+whole suite on a machine that other work had at 100% CPU, in which "live
+solve" took 28 s (2026-11-15): most of the phase is its own live solve.
+
 The twelve faint structural variants are over a third of the suite. It used
 to be the first step of `build`, which every later job waits for; in its own
 `live-camera` job beside `live-acceptance`, a pull request's gate went from

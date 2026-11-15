@@ -5,6 +5,7 @@ import fs from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import * as model from "../model.js";
+import { CAMERA_START_HELP } from "../photo-flow.js";
 
 const read = (name) =>
   fs.readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
@@ -45,15 +46,17 @@ test("the camera's video plays muted and inline, without the autoplay attribute"
   assert.match(video, /\smuted\b/); assert.match(video, /\splaysinline\b/);
 });
 
-// The text the camera's panel shows at its first opening stays until the
-// camera writes its first line, under every setting. It promises no solution:
-// the previews show one only with automatic solving ticked and Editing not
-// set to Play, and the camera's own aiming line says so there
-// (live-camera.js). Opened again, the panel shows the last line of the
-// session before until then; nothing sets this text back.
-test("the camera panel's starting text promises no solution", () => {
+// The text the camera's panel starts with stays until the camera writes its
+// first line, under every setting. It promises no solution: the previews show
+// one only with automatic solving ticked and Editing not set to Play, and the
+// camera's own aiming line says so there (live-camera.js). The page sets it
+// at every opening (photo-flow.js CAMERA_START_HELP, since November 2026:
+// until then a panel opened again showed the last line of the session before
+// meanwhile), and index.html has the same words for the panel before any.
+test("the camera panel's starting text promises no solution, in the page and in what each opening sets", () => {
   const help = read("index.html").match(/<p id="camera-help"[^>]*>([^<]*)<\/p>/)?.[1];
   assert.equal(help, "Hold the whole grid steady. Recognition appears here.");
+  assert.equal(CAMERA_START_HELP, help);
 });
 
 // "Wait up to 3 s for clearer clues before freezing" sits right after the

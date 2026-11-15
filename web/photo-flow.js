@@ -12,6 +12,14 @@ import { overlayCells } from "./live-overlay.js";
 import { cameraModal } from "./camera-modal.js";
 import { UNFINISHED } from "./task-controller.js";
 
+// The line the camera's panel starts every session with, until the camera
+// writes its first (openCamera). index.html has the same text for the panel
+// before any session, and app.test.js holds the two together. It promises no
+// solution: the previews show one only with automatic solving ticked and
+// Editing not set to Play, and the camera's own aiming line says so there
+// (live-camera.js).
+export const CAMERA_START_HELP = "Hold the whole grid steady. Recognition appears here.";
+
 export function setupPhotoFlow({
   $,
   state,
@@ -428,6 +436,14 @@ export function setupPhotoFlow({
     $("take-photo").hidden = false;
     $("take-photo").disabled = saving;
     $("retake-photo").hidden = $("download-live-capture").hidden = $("use-live-capture").hidden = true;
+    // The help line starts every session with the panel's own text (the
+    // owner's choice, November 2026). The camera writes its first line only
+    // once the video plays, and until then a panel opened again showed the
+    // last line of the session before: "Solution preview — frozen. …" after
+    // a freeze, also with Editing set to Play since, or "Picture saved …"
+    // after Retake. Set here, in the tap and while the panel is still hidden,
+    // so that the old line is never on screen.
+    $("camera-help").textContent = CAMERA_START_HELP;
     const epoch = cameraEpoch;
     try {
       if (!navigator.mediaDevices?.getUserMedia)

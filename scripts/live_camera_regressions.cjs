@@ -421,6 +421,46 @@ async function pageLyingSideways(page,report) {
   },()=>page.evaluate(()=>{window.liveTurn=0;window.turnObserver?.disconnect();}));
   report.checks.push("aimed at the paper a quarter turn round, the live view reads it as it lies and does not freeze; the help line and the export say the grid looks sideways, not to move closer or wait for a clearer frame");
 }
+// The camera panel's help line when the camera is opened again: the text the
+// panel starts with (photo-flow.js CAMERA_START_HELP), not the last line of
+// the session before, which the closed panel still holds. Until November 2026
+// nothing set the line back, and a panel opened again showed that line until
+// the camera wrote its first, once the video played: "Solution preview —
+// frozen. …" after a session that froze, as here. The line is read as the
+// tap is heard on the document, after the button's own handler has run up to
+// its wait for the video, and every line written from the tap on is kept
+// until the camera's first: the starting text comes first, and with nothing
+// timed. The listener hears one tap and the observer stops at the camera's
+// first line, so nothing is left to put back.
+const CAMERA_START_HELP="Hold the whole grid steady. Recognition appears here.";
+async function openedAgain(page,report) {
+  await page.evaluate(()=>{window.liveMode="grid";});
+  await solveLive(page);
+  await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen");
+  const frozen=await page.textContent("#camera-help");
+  assert.match(frozen,/^Solution preview — frozen\./,"the session before froze, and its help line says so");
+  await page.click("#close-camera");
+  assert.equal(await page.textContent("#camera-help"),frozen,"the closed panel keeps that line");
+  await page.evaluate(start=>{
+    const help=document.getElementById("camera-help"),seen=window.openedAgain={tap:null,lines:[]};
+    const watch=new MutationObserver(()=>{seen.lines.push(help.textContent);if(help.textContent!==start)watch.disconnect();});
+    watch.observe(help,{childList:true,characterData:true,subtree:true});
+    document.addEventListener("click",function heard(event){
+      if(!event.target?.closest?.("#camera"))return;
+      seen.tap=help.textContent;document.removeEventListener("click",heard);
+    });
+  },CAMERA_START_HELP);
+  await startLive(page);
+  await page.waitForFunction(start=>openedAgain.lines.some(line=>line!==start),CAMERA_START_HELP,{timeout:150000});
+  const opened=await page.evaluate(()=>window.openedAgain);
+  report.openedAgain={frozen,...opened};
+  assert.equal(opened.tap,CAMERA_START_HELP,"the tap that opens the camera again sets the panel's starting text");
+  assert.equal(opened.lines[0],CAMERA_START_HELP,"and it is the first line written from that tap on");
+  assert.ok(!opened.lines.includes(frozen),`the frozen solution's line is not written again (${JSON.stringify(opened.lines)})`);
+  assert.equal(await page.locator("#camera-panel").isVisible(),true);
+  await page.click("#close-camera");
+  report.checks.push("a camera opened again after a session that froze starts with the panel's starting text: the tap sets it, before the camera's first line, and the frozen solution's line is not shown again");
+}
 async function run() {
   const server=await serve();
   try {
@@ -572,6 +612,7 @@ async function run() {
         await time("live capture with automatic solving off",()=>captureWithoutAutoSolve(page,report));
         await time("the camera in Play",()=>readsOnlyInPlay(page,report));
         await time("a page lying sideways",()=>pageLyingSideways(page,report));
+        await time("a camera opened again",()=>openedAgain(page,report));
         await time("the freeze's wait, off by default and on through its checkbox",async()=>{
           // "Wait up to 3 s for clearer clues before freezing" is off by
           // default: a solved reading with a yellow clue a retry could still
@@ -839,5 +880,5 @@ async function run() {
   } finally{server.close();}
 }
 module.exports = { run, readAfterFailure, stepThenPutBack, layersAtEachScreen, narrowScreen, captureWithoutAutoSolve, readsOnlyInPlay,
-  pageLyingSideways };
+  pageLyingSideways, openedAgain, CAMERA_START_HELP };
 main(module,run);
