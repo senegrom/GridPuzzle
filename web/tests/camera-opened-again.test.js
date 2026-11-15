@@ -33,14 +33,17 @@ function standIn({ help = FROZEN, seen }) {
     },
     async waitForFunction(run, argument) { calls.push({ kind: 'waitForFunction', source: String(run).replace(/\s+/g, ''), argument }); },
     async click(selector) { calls.push({ kind: 'click', selector }); },
+    async goto(url) { calls.push({ kind: 'goto', url }); },
+    async waitForSelector(selector) { calls.push({ kind: 'waitForSelector', selector }); },
     async textContent(selector) { calls.push({ kind: 'textContent', selector }); return selector === '#camera-help' ? help : ''; },
     locator: (selector) => ({ isVisible: async () => selector === '#camera-panel' }),
   };
   return page;
 }
+const BASE = 'http://127.0.0.1:1/';
 const played = async (answers) => {
   const page = standIn(answers), report = { checks: [] };
-  const error = await camera.openedAgain(page, report).then(() => undefined, (failure) => failure);
+  const error = await camera.openedAgain(page, report, BASE).then(() => undefined, (failure) => failure);
   return { page, report, error };
 };
 
@@ -51,7 +54,7 @@ test('the suite and the page have the same starting text', () => {
 test('the suite runs the phase, after "a page lying sideways" has put the paper upright again', async () => {
   const fs = await import('node:fs');
   const source = fs.readFileSync(new URL('../../scripts/live_camera_regressions.cjs', import.meta.url), 'utf8');
-  assert.match(source, /await time\("a page lying sideways",\(\)=>pageLyingSideways\(page,report\)\);\r?\n\s+await time\("a camera opened again",\(\)=>openedAgain\(page,report\)\);/);
+  assert.match(source, /await time\("a page lying sideways",\(\)=>pageLyingSideways\(page,report\)\);\r?\n\s+await time\("a camera opened again",\(\)=>openedAgain\(page,report,server\.base\)\);/);
 });
 
 test('the phase passes where the tap sets the starting text and the camera\'s first line follows it', async () => {
@@ -62,12 +65,18 @@ test('the phase passes where the tap sets the starting text and the camera\'s fi
   assert.deepEqual(report.openedAgain, { frozen: FROZEN, ...seen });
   // In order: a session that freezes and is closed, the listener and the
   // observer set up with the starting text, then the tap, the wait for the
-  // camera's first line, the read, and the camera closed again.
+  // camera's first line, the read, the camera closed again, and the page
+  // loaded afresh with its camera fixture: the preview canvas can still carry
+  // the first session's "frozen" mark, on which the next phase's wait for a
+  // freeze would pass at once (it did in WebKit on the hosted runner).
   const kinds = page.calls.map((call) => (call.kind === 'click' ? `click ${call.selector}`
     : call.kind === 'evaluate' && call.source.includes('newMutationObserver') ? 'watch'
       : call.kind === 'evaluate' && call.source === '()=>window.openedAgain' ? 'read'
-        : call.kind === 'waitForFunction' && call.source.includes('openedAgain.lines.some') ? 'wait for the first line' : null)).filter(Boolean);
-  assert.deepEqual(kinds, ['click #camera', 'click #close-camera', 'watch', 'click #camera', 'wait for the first line', 'read', 'click #close-camera']);
+        : call.kind === 'evaluate' && call.source.includes('navigator.mediaDevices') ? 'camera fixture'
+          : call.kind === 'waitForFunction' && call.source.includes('openedAgain.lines.some') ? 'wait for the first line'
+            : call.kind === 'goto' ? `goto ${call.url}` : call.kind === 'waitForSelector' ? `wait for ${call.selector}` : null)).filter(Boolean);
+  assert.deepEqual(kinds, ['click #camera', 'click #close-camera', 'watch', 'click #camera', 'wait for the first line', 'read', 'click #close-camera',
+    `goto ${BASE}`, 'wait for body[data-ready="true"]', 'camera fixture']);
   const watch = page.calls.find((call) => call.source?.includes('newMutationObserver'));
   assert.equal(watch.argument, CAMERA_START_HELP, 'the observer is told the starting text, at which it goes on watching');
   assert.ok(watch.source.includes('document.removeEventListener("click",heard)') && watch.source.includes('watch.disconnect()'),

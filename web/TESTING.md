@@ -1619,7 +1619,13 @@ choice of November 2026 that the camera's panel starts every session with its
 starting text: a session that freezes is closed, and when the camera is opened
 again the help line is that text as the tap is heard, and it is the first line
 written from the tap on, before the camera's own; the frozen solution's line,
-which the panel showed again for that moment until then, is not written.
+which the panel showed again for that moment until then, is not written. The
+phase ends by loading the page afresh, as the other phases that end on a
+frozen view do: the preview canvas keeps a session's "frozen" mark and counts
+until the next session draws, and in WebKit on the hosted runner the second
+session was closed before it had drawn, so that the wait for a freeze in "the
+freeze's wait" passed at once on the old mark and that phase failed on the
+old counts (run 43672141576).
 `web/tests/camera-opened-again.test.js` plays the phase on a stand-in page
 that answers as the page does now, and as it did before, which fails it. In
 local Chromium it took 4.7 s run by itself, and 38.4 s inside a run of the

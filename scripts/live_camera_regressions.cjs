@@ -431,9 +431,14 @@ async function pageLyingSideways(page,report) {
 // its wait for the video, and every line written from the tap on is kept
 // until the camera's first: the starting text comes first, and with nothing
 // timed. The listener hears one tap and the observer stops at the camera's
-// first line, so nothing is left to put back.
+// first line. The page is then loaded afresh, with its camera fixture, as
+// after the other phases that end on a frozen view: the preview canvas keeps
+// the first session's "frozen" mark and counts until the second session
+// draws, and where that session is closed before it has drawn (WebKit on the
+// hosted runner) the next phase's wait for a freeze would pass at once on the
+// old mark.
 const CAMERA_START_HELP="Hold the whole grid steady. Recognition appears here.";
-async function openedAgain(page,report) {
+async function openedAgain(page,report,base) {
   await page.evaluate(()=>{window.liveMode="grid";});
   await solveLive(page);
   await page.waitForFunction(()=>document.getElementById("live-preview").dataset.view==="frozen");
@@ -459,6 +464,7 @@ async function openedAgain(page,report) {
   assert.ok(!opened.lines.includes(frozen),`the frozen solution's line is not written again (${JSON.stringify(opened.lines)})`);
   assert.equal(await page.locator("#camera-panel").isVisible(),true);
   await page.click("#close-camera");
+  await idlePage(page,base);await fixture(page);
   report.checks.push("a camera opened again after a session that froze starts with the panel's starting text: the tap sets it, before the camera's first line, and the frozen solution's line is not shown again");
 }
 async function run() {
@@ -612,7 +618,7 @@ async function run() {
         await time("live capture with automatic solving off",()=>captureWithoutAutoSolve(page,report));
         await time("the camera in Play",()=>readsOnlyInPlay(page,report));
         await time("a page lying sideways",()=>pageLyingSideways(page,report));
-        await time("a camera opened again",()=>openedAgain(page,report));
+        await time("a camera opened again",()=>openedAgain(page,report,server.base));
         await time("the freeze's wait, off by default and on through its checkbox",async()=>{
           // "Wait up to 3 s for clearer clues before freezing" is off by
           // default: a solved reading with a yellow clue a retry could still
