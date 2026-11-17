@@ -142,29 +142,44 @@ def site(tmp_path):
 
 
 def _answer(port: int, path: str, method: str = "GET", headers: dict[str, str] | None = None):
-    """What the server answers: its status, the headers a browser's loading
-    and caching go by, and the body."""
+    """What the server answers: its status, its headers but for the time of
+    the answer (their names in lower case), and the body."""
     request = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             status, got, body = response.status, response.headers, response.read()
     except urllib.error.HTTPError as error:
-        status, got, body = error.code, error.headers, error.read()
-    return status, {name: got.get(name) for name in ("Content-Type", "Content-Length", "Last-Modified")}, body
+        with error:  # it holds the connection's file, which a warning names if nobody closes it
+            status, got, body = error.code, error.headers, error.read()
+    return status, {name.lower(): value for name, value in got.items() if name.lower() != "date"}, body
 
 
 def test_the_program_is_python_as_it_stands_in_the_module():
     compile(_program(), "STATIC_SERVER", "exec")
 
 
+def test_the_program_passes_the_projects_lint():
+    """It is text in a JavaScript module, which `ruff check .` does not see:
+    here it is checked as the Python file it would be, by the project's rules."""
+    pytest.importorskip("ruff")
+    checked = subprocess.run(
+        [sys.executable, "-m", "ruff", "check", "--no-cache", "--stdin-filename", "scripts/static_server.py", "-"],
+        input=_program(), cwd=_ROOT, capture_output=True, text=True,
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+
+
 def test_it_names_its_port_in_the_line_http_server_prints(site):
     """The harness reads the port from the first line, and waits for that
-    line for ever: a server that worded it otherwise would hold every suite."""
+    line for ever: a server that worded it otherwise would hold every suite.
+    Asked for port 0, each server gets one of its own from the system."""
     assert f"/{_PORT}/.exec(" in (_ROOT / "scripts" / "harness.cjs").read_text(encoding="utf-8")
     with _serving(_ours(0, site)) as (_, ours, port), _serving(_pythons(0, site)) as (_, pythons, other):
         assert port != other
         assert ours.replace(str(port), "PORT") == pythons.replace(str(other), "PORT")
         assert ours.startswith(f"Serving HTTP on 127.0.0.1 port {port} ")
+        with _serving(_ours(0, site)) as (_, _again, another):
+            assert len({0, port, other, another}) == 4
 
 
 def test_it_serves_a_directory_as_http_server_does(site):
@@ -172,7 +187,7 @@ def test_it_serves_a_directory_as_http_server_does(site):
     a module, a WebAssembly file by its type, the harness's HEAD of the site,
     a file that is not there, and a file the browser already has."""
     with _serving(_ours(0, site)) as (_, _line, ours), _serving(_pythons(0, site)) as (_, _other, pythons):
-        seen = _answer(ours, "/web/app.js")[1]["Last-Modified"]
+        seen = _answer(ours, "/web/app.js")[1]["last-modified"]
         requests = [
             ("/", "GET", None), ("/", "HEAD", None), ("/index.html", "GET", None), ("/web/app.js", "GET", None),
             ("/web/runtime.wasm", "GET", None), ("/missing.js", "GET", None), ("/web/app.js", "GET", {"If-Modified-Since": seen}),
@@ -182,7 +197,7 @@ def test_it_serves_a_directory_as_http_server_does(site):
         assert _answer(ours, "/")[0] == 200 and _answer(ours, "/")[2] == (site / "index.html").read_bytes()
         assert _answer(ours, "/", "HEAD")[0] == 200
         assert _answer(ours, "/web/app.js")[2] == b"export const ready = true;\n"
-        assert _answer(ours, "/web/runtime.wasm")[1]["Content-Type"] == "application/wasm"
+        assert _answer(ours, "/web/runtime.wasm")[1]["content-type"] == "application/wasm"
         assert _answer(ours, "/missing.js")[0] == 404
         assert _answer(ours, "/web/app.js", headers={"If-Modified-Since": seen})[0] == 304
 
@@ -204,6 +219,26 @@ def test_it_answers_while_another_connection_says_nothing(site):
     with _serving(_ours(0, site)) as (_, _line, port), socket.create_connection(("127.0.0.1", port), timeout=10):
         assert _answer(port, "/web/app.js")[0] == 200
         assert _answer(port, "/", "HEAD")[0] == 200
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a console's Ctrl+C cannot be sent to one process on Windows")
+def test_it_ends_on_an_interrupt_as_http_server_does(site):
+    """Ctrl+C in a terminal reaches the server too. `python -m http.server`
+    ends with exit code 0 then, and so does the program, without a traceback
+    (an interrupt nothing catches ends Python with another code). Where an
+    interrupt does not end `python -m http.server` either, because the tests
+    run with interrupts ignored, there is nothing to compare."""
+    codes = []
+    for command in (_pythons(0, site), _ours(0, site)):
+        with _serving(command) as (server, _, port):
+            assert _answer(port, "/")[0] == 200
+            server.send_signal(signal.SIGINT)
+            try:
+                codes.append(server.wait(30))
+            except subprocess.TimeoutExpired:
+                assert not codes, "the program goes on after an interrupt that ends http.server"
+                pytest.skip("an interrupt does not reach a child process here")
+    assert codes == [0, 0]
 
 
 # A browser opens six connections to a host at once, a page of the site asks
@@ -229,15 +264,25 @@ def test_http_servers_own_queue_does_not(site):
 
 def test_no_script_starts_a_server_of_its_own():
     """Every `python` a suite or a corpus command starts is this server, by
-    staticServer(): a fourth `-m http.server` would have the queue of 5."""
+    staticServer(): a fourth `-m http.server` would have the queue of 5. It
+    reads the scripts' text: a start through any of Node's ways to start a
+    process whose first argument is a quoted python (python3, python.exe), and
+    `-m http.server` written out anywhere but in the comment that names it.
+    Each of the three starts is here as it is written, up to its options: the
+    port and the folder it hands on are the ones its own pages are then loaded
+    from, and one that swapped the two, or served another port or folder,
+    would show in no test but a browser's."""
     starts = []
     for path in sorted([*(_ROOT / "scripts").glob("*.cjs"), *(_ROOT / "corpus").glob("*.cjs")]):
         text = path.read_text(encoding="utf-8")
-        starts += [(path.name, text[found.end() : found.end() + 13]) for found in re.finditer(r"""spawn\(\s*["']python["']\s*,\s*""", text)]
+        starts += [
+            (path.name, text[found.end() :].split("\n", 1)[0].split(", {", 1)[0])
+            for found in re.finditer(r"""\b(?:spawn|exec|execFile|fork)(?:Sync)?\(\s*["'`]python[\d.]*(?:\.exe)?["'`]\s*,\s*""", text)
+        ]
         if path != _WATCH:
-            assert '"http.server"' not in text and "'http.server'" not in text, path.name
+            assert not re.search(r"""-m["'`,\s]+["'`]?http\.server""", text), path.name
     assert sorted(starts) == [
-        ("benchmark-runner.cjs", "staticServer("),
-        ("detect_benchmark_regressions.cjs", "staticServer("),
-        ("harness.cjs", "staticServer("),
+        ("benchmark-runner.cjs", 'staticServer(new URL(base).port || "80", options.site || "_site")'),
+        ("detect_benchmark_regressions.cjs", 'staticServer(8782, "_site")'),
+        ("harness.cjs", "staticServer(port, directory)"),
     ]

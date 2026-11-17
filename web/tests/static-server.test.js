@@ -39,8 +39,10 @@ test('the program\'s text is the program: no backslash, no backquote, no interpo
 test('the program asks for a queue that holds a browser\'s connections, on the loopback address, and names its port as http.server does', () => {
   const [, queue] = /^ {4}request_queue_size = (\d+)$/m.exec(STATIC_SERVER);
   // Six connections to a host at once, forty-odd requests a page load, each
-  // on a connection of its own, and two pages in a suite at most.
-  assert.ok(Number(queue) >= 64, queue);
+  // on a connection of its own, and two pages in a suite at most: 128, as the
+  // comments and web/TESTING.md say, twice what the Python test opens at once.
+  assert.equal(Number(queue), 128);
+  assert.match(STATIC_SERVER, /^ {4}with contextlib\.suppress\(KeyboardInterrupt\):\n {8}server\.serve_forever\(\)$/m);
   assert.match(STATIC_SERVER, /^class Server\(http\.server\.ThreadingHTTPServer\):$/m);
   assert.match(STATIC_SERVER, /^with Server\(\("127\.0\.0\.1", port\), handler\) as server:$/m);
   assert.match(STATIC_SERVER, /^handler = functools\.partial\(http\.server\.SimpleHTTPRequestHandler, directory=directory\)$/m);

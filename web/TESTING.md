@@ -43,7 +43,9 @@ connections that wait to be accepted. `http.server` asks for 5. A browser opens
 six connections to a host at once, each of the forty-odd requests of a page
 load is a connection of its own, since the server speaks HTTP/1.0, and a suite
 may have two pages. When the server loses the processor for a moment, a queue
-of 5 is full, and Windows refuses every further connection at once: the page
+of 5 is full, and Windows refuses every further connection at once (Chromium
+hears of it within 4 to 6 ms; a plain socket, as the Python test's, some two
+seconds later, after Windows' own retries): the page
 never gets a module it asked for and never marks itself ready. Until November
 2026 the suites stopped that way on a loaded Windows machine, at a page load
 that "did not become ready" within its 20 s, in another phase each time and
@@ -60,15 +62,26 @@ review of #199). On 2026-11-15, with other work holding this machine at 80 to
 100% CPU, two of two runs of `live_camera` in Chromium on `python -m
 http.server` stopped at such a page load, and three of three with a queue of
 128 passed in full: one on the program, beside a whole unit-test run, in
-295 s, and two on `http.server` with its queue raised from outside.
+295 s, and two on `http.server` with its queue raised from outside. In the
+review of the change, the same day at 73 to 100% CPU, Chromium loaded the
+built site from the two servers in turn, each load in a context of its own:
+11 of 27 loads from `python -m http.server` did not become ready, with 44
+requests refused and no other failure, and none of 27 from the program, with
+no request failed.
 `tests/test_static_server.py` runs the program on every Python leg of CI: it
-names its port in the line `http.server` prints, answers a page, a module, a
-WebAssembly file, the harness's `HEAD`, a missing file and a file the browser
-already has exactly as `python -m http.server` does, serves a port it is given,
-and takes 64 connections opened at once while its process is held, where on
-Windows `http.server`'s own queue does not; and no script starts a `python` of
-its own any other way. `web/tests/static-server.test.js` has the arguments,
-and that `serve()` starts `python` with exactly those.
+passes the project's lint as the Python file it would be (it is text in a
+JavaScript module, which `ruff check .` does not see), names its port in the
+line `http.server` prints, each server getting a port of its own when asked
+for port 0, answers a page, a module, a WebAssembly file, the harness's
+`HEAD`, a missing file and a file the browser already has exactly as `python
+-m http.server` does, in every header but the time of the answer, serves a
+port it is given, ends on an interrupt with exit code 0 as `http.server` does
+(where one can be sent to a single process, so not on Windows), and takes 64
+connections opened at once while its process is held, where on Windows
+`http.server`'s own queue does not; and no script starts a `python` of its own
+any other way, each of the three starts being held as it is written.
+`web/tests/static-server.test.js` has the arguments, the queue of 128, and
+that `serve()` starts `python` with exactly those.
 
 A report starts as `{ browser, version, errors, ended, cleanupErrors }`, the
 suite adds what it measures, and `status` says `passed` or `failed`, with the

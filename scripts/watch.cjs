@@ -36,7 +36,8 @@ const assert = require("node:assert/strict");
    It has no backslash, no backquote and no dollar sign before a brace, so
    that its text here is the program as Python gets it;
    tests/test_static_server.py takes it from this file by that and runs it. */
-const STATIC_SERVER = `import functools
+const STATIC_SERVER = `import contextlib
+import functools
 import http.server
 import sys
 
@@ -50,10 +51,8 @@ handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=dire
 with Server(("127.0.0.1", port), handler) as server:
     host, port = server.server_address[:2]
     print(f"Serving HTTP on {host} port {port} (http://{host}:{port}/) ...", flush=True)
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         server.serve_forever()
-    except KeyboardInterrupt:
-        pass
 `;
 
 /* The arguments that start that server with `python`, serving `directory` on
