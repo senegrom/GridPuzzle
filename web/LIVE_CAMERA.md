@@ -269,11 +269,15 @@ promises a solution only where the previews solve: it is "Hold the grid
 steady. Recognition and solution appear here automatically." there, and "Hold
 the grid steady. Recognition appears here automatically." in Play and without
 automatic solving (where, until November 2026, it promised a solution as
-well). The text the panel shows at its first opening, until the camera's
-first line, promises none either ("Hold the whole grid steady. Recognition
-appears here."); opened again, the panel shows the last line of the session
-before for that moment, as it always has. The diagnostics record Play beside
-automatic solving, as `settings.playing`.
+well). The text the panel starts every session with, until the camera's first
+line, promises none either ("Hold the whole grid steady. Recognition appears
+here."). The page sets it in the tap that opens the camera, at every opening
+and while the panel is still hidden, and the camera writes its first line
+once the video plays (the owner's choice of November 2026; until then nothing
+set the line back, and a panel opened again showed the last line of the
+session before meanwhile: "Solution preview — frozen. …" after a freeze, also
+with Editing set to Play since, or the shutter's line after Retake). The
+diagnostics record Play beside automatic solving, as `settings.playing`.
 
 While the freeze waits, no solution is shown and the help line says "Solution
 found — hold the grid steady for a moment…", from the moment the solved
