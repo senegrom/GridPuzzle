@@ -321,17 +321,18 @@ const SITES = [
       // a clearer frame of the clues in doubt: the step asks of the line then
       // only that it speaks of no solve.
       if (evaluates(call, 'solvers:window.solversStarted')) return { view: 'live', overlay: 'outline', solution: 0, paused: false,
-        legend: ['10', '4', null, null], solvers: 0, help: 'Waiting for a clearer frame of the unclear clues (uncertain ? in the legend). Capture to review them manually.' };
+        legend: ['10', '4', null, null], solvers: 0, warm: true,
+        help: 'Waiting for a clearer frame of the unclear clues (uncertain ? in the legend). Capture to review them manually.' };
       if (evaluates(call, 'line:document.getElementById("camera-help").textContent')) return { line, counts: ['10', '4'] };
       if (evaluates(call, '.textContent).settings;')) return { type: 'auto', playing: true, autoSolve: true };
       if (call.kind === 'textContent' && call.selector === '#use-live-capture') return 'Review captured clues';
       if (call.kind === 'inputValue' && call.selector === '#edit-tool') return 'play';
       // With the camera closed: the page's interpreter, as it was before it.
-      if (evaluates(call, 'warm:liveApp.getState().solverWarm')) return { warm: true, started: 0 };
+      if (evaluates(call, 'started:window.solversStarted')) return { warm: true, started: 0 };
       return visible(call);
     },
     waits: [3000],
-    check: 'while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading; the page\'s interpreter, warm before the camera opened, is still the page\'s and warm once it has closed' },
+    check: 'while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading; the page\'s interpreter, warm before the camera opened, is the page\'s and warm while the camera reads and once it has closed' },
   { suite: 'live_camera', name: 'paper\'s turn after a page lying sideways',
     run: (page, report) => camera.pageLyingSideways(page, report),
     isPutBack: (call) => evaluates(call, 'window.liveTurn=0;'),
@@ -507,37 +508,78 @@ describe('live_camera: the help line three seconds on, in "the camera in Play"',
 // before the tap, by loading the board on the page again, and fails where it
 // is gone afterwards, as it was until November 2026, when the camera had it
 // released in Play, or where another was started meanwhile, as a camera that
-// had it released and started one again as it closed would. The page is put
-// back all the same, once.
+// had it released and started one again as it closed would. And three seconds
+// into the reading the page must have it, warm: a camera that took it over
+// and handed it back as it closed would leave the page without one meanwhile.
+// The page is put back all the same, once.
 describe('live_camera: the page\'s interpreter after "the camera in Play"', () => {
   const PLAY = SITES.find(({ name }) => name === 'Editing after the camera in Play');
-  const play = async (t, interpreter) => {
-    const counted = limitsCounted(t);
+  const CLOSED = 'started:window.solversStarted', READING = 'solvers:window.solversStarted';
+  // `tools`: what Editing is set to each time the step asks, in order (Play
+  // once they are used up).
+  const play = async (t, interpreter, reading = {}, tools = []) => {
+    const counted = limitsCounted(t), asked = [...tools];
     try {
-      const site = { ...PLAY, answer: (call, state) =>
-        (evaluates(call, 'warm:liveApp.getState().solverWarm') ? interpreter : PLAY.answer(call, state)) };
+      const site = { ...PLAY, answer: (call, state) => (evaluates(call, CLOSED) ? interpreter
+        : evaluates(call, READING) ? { ...PLAY.answer(call, state), ...reading }
+          : call.kind === 'inputValue' && call.selector === '#edit-tool' && asked.length ? asked.shift() : PLAY.answer(call, state)) };
       const page = standInPage(site, true, 'answer'), report = { browser: 'chromium', cleanupErrors: [], checks: [] };
       const seen = outcomeOf(site.run(page, report));
       await tick();
+      // Before the step's three seconds are over: has it read the page yet?
+      const early = page.calls.some((call) => evaluates(call, READING));
       t.mock.timers.tick(3000); await tick();
       assert.notEqual(seen.outcome, null, 'the step has ended');
       assert.equal(page.calls.filter((call) => call.putBack).length, 1, 'the page is put back, once');
-      return { error: seen.outcome.error, report, page };
+      return { error: seen.outcome.error, report, page, early };
     } finally { counted.restore(); }
   };
   test('the step has the page start its interpreter and waits for it, before the tap that opens the camera', async (t) => {
-    const { error, report, page } = await play(t, { warm: true, started: 0 });
+    const { error, report, page, early } = await play(t, { warm: true, started: 0 });
     assert.equal(error, undefined);
     assert.deepEqual(report.checks, [PLAY.check]);
     assert.deepEqual(report.playCamera.interpreter, { warm: true, started: 0 });
+    assert.equal(early, false, 'what the page shows while the camera reads is read three seconds on, not before');
     const at = (found) => page.calls.findIndex(found);
     const loaded = at((call) => evaluates(call, 'liveApp.loadPuzzle(liveApp.getState().puzzle)')),
       waited = at((call) => call.kind === 'waitForFunction' && call.source === '()=>liveApp.getState().solverWarm===true'),
       tapped = at((call) => call.kind === 'click' && call.selector === '#camera'),
       closed = at((call) => call.kind === 'click' && call.selector === '#close-camera'),
-      read = at((call) => evaluates(call, 'warm:liveApp.getState().solverWarm'));
+      reading = at((call) => evaluates(call, READING)), read = at((call) => evaluates(call, CLOSED));
     assert.ok(loaded >= 0 && loaded < waited && waited < tapped, `loaded (${loaded}), waited for (${waited}), then the tap (${tapped})`);
+    // A first start of Python takes its time on a loaded runner: the wait has
+    // the suite's long limit, not Playwright's 30 seconds.
+    assert.deepEqual(page.calls[waited].args.slice(1), [null, { timeout: 150000 }]);
+    assert.ok(tapped < reading && reading < closed, `read while the camera is open (${reading}), between the tap and the close`);
     assert.ok(closed > tapped && read > closed, `read (${read}) once the camera has closed (${closed})`);
+    // What the page is asked, to the letter: this page answers whatever it is
+    // asked, so a read that asked for less (a count that is always nought, a
+    // flag that is always set) would pass here and in the browser alike.
+    assert.ok(page.calls[reading].source.endsWith(',solvers:window.solversStarted,warm:liveApp.getState().solverWarm};}'), page.calls[reading].source);
+    assert.equal(page.calls[read].source, '()=>({warm:liveApp.getState().solverWarm,started:window.solversStarted})');
+    assert.equal(report.playCamera.live.warm, true);
+  });
+  test('the step fails where the page has no warm interpreter while the camera reads', async (t) => {
+    const { error, report } = await play(t, { warm: true, started: 0 }, { warm: false });
+    assert.equal(error?.name, 'AssertionError');
+    assert.match(error.message, /^the page has its interpreter, warm, while the camera reads/);
+    assert.deepEqual(report.checks, []);
+  });
+  // Loading the board again is the step's way to a warm interpreter, and it
+  // must not have taken the page out of Play: the camera would then be opened
+  // under another tool, and solve.
+  test('the step fails, before it opens the camera, where the board loaded again has left Play', async (t) => {
+    const { error, report, page } = await play(t, { warm: true, started: 0 }, {}, ['value']);
+    assert.equal(error?.name, 'AssertionError');
+    assert.match(error.message, /^and the board loaded again leaves Editing on Play/);
+    assert.equal(page.calls.some((call) => call.kind === 'click' && call.selector === '#camera'), false, 'the camera is not opened');
+    assert.deepEqual(report.checks, []);
+  });
+  test('the step fails where Play is no longer on once the camera has closed', async (t) => {
+    const { error, report } = await play(t, { warm: true, started: 0 }, {}, ['play', 'value']);
+    assert.equal(error?.name, 'AssertionError');
+    assert.match(error.message, /^Play is still on with the camera closed/);
+    assert.deepEqual(report.checks, []);
   });
   for (const [what, interpreter, message] of [
     ['is gone', { warm: false, started: 0 }, /^the page's interpreter is still warm with the camera closed/],

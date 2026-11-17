@@ -377,13 +377,17 @@ open. While Editing is set to Play the camera takes none and warms none
 either, but the page keeps its own, alive, whatever the automatic-solving box
 says (the owner's choice of November 2026; until then it was released there
 too): Check and Hint are what a player asks for next, and the first of them
-after the camera then does not wait for Python to start again (1.7 s against
-some 60 ms in Chromium on a desktop, measured in the review of the change
-before; a phone was not measured). The price is the interpreter's memory
-while the camera reads: one interpreter, as the previews hold one where they
-solve. An interpreter that was running a search when the camera opened ends
-with that search, as at any Stop, and the page then has none until it is
-asked again. The preview
+after the camera then does not wait for Python to start again (2.2 to 3.1 s
+before, 20 to 105 ms now, for the first Hint in Chromium on a desktop,
+measured in the review of the change; a phone was not measured). The price is
+the interpreter's memory while the camera reads: one interpreter, as the
+previews hold one where they solve (some 155 MB more of the page's own memory
+while the camera reads and 135 MB more once it has closed, in the same
+review's headless Chromium). One case is not kept: opening the camera stops a task that is running,
+as any Stop does, and a stop ends the interpreter with the task, whether it
+was the interpreter's own search or a Read or a grid detection beside an idle
+interpreter (only a photograph still being opened leaves it). The page then
+has none until it is asked again. The preview
 runtime is warmed once per camera session and reloaded in the background after
 a search budget had to terminate it. Realignment cancels an active search but
 keeps an idle or warming worker; the first frame and settings changes do not
@@ -1570,7 +1574,8 @@ Browser suites, in Chromium and WebKit (where each runs is in `TESTING.md`):
   Editing set to Play and automatic solving ticked (it only reads: no solver
   started from the tap that opens it, nothing frozen three seconds on, the
   help line and the export saying why, the reading kept by the shutter, Play
-  still on with the camera closed), the freeze's wait for
+  still on with the camera closed, and the page's own interpreter the page's
+  and warm while the camera reads and once it has closed), the freeze's wait for
   clearer clues, off by default (a solved reading with a retryable yellow clue
   freezes without waiting for its retries) and ticked through its checkbox
   (saved, restored after a reload, recorded in the diagnostics, and holding

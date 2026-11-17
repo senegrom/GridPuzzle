@@ -329,8 +329,9 @@ async function captureWithoutAutoSolve(page,report) {
 // records Play beside automatic solving. The shutter saves the picture and
 // keeps the reading, and Play is still on with the camera closed. The page's
 // own interpreter, which the step has it start and waits for before the
-// camera opens (a board that is loaded starts one), is still the page's and
-// warm once the camera has closed: the camera neither took it nor had it
+// camera opens (a board that is loaded starts one), is the page's and warm
+// while the camera reads, three seconds on, and once the camera has closed:
+// the camera neither took it (the page would have none meanwhile) nor had it
 // released, so Check and Hint after the camera do not wait for Python again
 // (no solver was started from the tap on, so it is that one). Then Editing is
 // set back to Clues, and Worker to what it was.
@@ -373,7 +374,7 @@ async function readsOnlyInPlay(page,report) {
     const live=await page.evaluate(()=>{const preview=document.getElementById("live-preview");
       return {view:preview.dataset.view,overlay:preview.dataset.overlay,solution:Number(preview.dataset.solution),paused:document.getElementById("video").paused,
         legend:["recognised","uncertain","unknown","solution"].map(key=>document.getElementById(`legend-${key}`).getAttribute("data-count")),
-        help:document.getElementById("camera-help").textContent,solvers:window.solversStarted};});
+        help:document.getElementById("camera-help").textContent,solvers:window.solversStarted,warm:liveApp.getState().solverWarm};});
     live.settings=await page.evaluate(()=>{
       const panel=document.getElementById("live-diagnostics"),node=key=>panel.querySelector(`[data-diagnostic="${key}"]`);
       node("prepare").click();try{return JSON.parse(node("preview").textContent).settings;}finally{node("clear").click();}
@@ -383,6 +384,7 @@ async function readsOnlyInPlay(page,report) {
     assert.equal(live.solution,0);assert.equal(live.paused,false);
     assert.equal(Number(live.legend[0])+Number(live.legend[1]),14,"the legend counts the reading");assert.equal(live.legend[3],null,"and no solution");
     assert.equal(live.solvers,0,"the camera started no solver");
+    assert.equal(live.warm,true,"the page has its interpreter, warm, while the camera reads: it was not handed to the camera either");
     assert.doesNotMatch(live.help,SOLVE_LINES,"and the help line speaks of no solve, whichever line it is by then");
     assert.equal(live.settings.playing,true,"the export records Play");assert.equal(live.settings.autoSolve,true,"beside automatic solving, still ticked");
     await shutterAfterVerification(page);
@@ -399,7 +401,7 @@ async function readsOnlyInPlay(page,report) {
     window.Worker=window.playWorker;
     const tool=document.getElementById("edit-tool");tool.value="value";tool.dispatchEvent(new Event("change",{bubbles:true}));
   }));
-  report.checks.push("while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading; the page's interpreter, warm before the camera opened, is still the page's and warm once it has closed");
+  report.checks.push("while Editing is set to Play the camera only reads, though automatic solving is ticked: the help line says why as the reading completes, the live video stays the display with the outline and legend counts, no solver starts and nothing freezes, and the export records Play; the shutter keeps the reading; the page's interpreter, warm before the camera opened, is the page's and warm while the camera reads and once it has closed");
 }
 // The live view never turns a reading (only a still photograph's is checked
 // for a turn): aimed at the paper a quarter turn round, with real OCR, it
