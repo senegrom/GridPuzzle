@@ -9,7 +9,9 @@ const { score, isPerfect, SCORE_VERSION } = require("./score.cjs");
 // suites hear it, a clean-up with a time limit, and the word that a browser
 // would not close; watch.cjs, unlike the suites' harness, leaves the process's
 // signals to the benchmarks, which save their report first (interruptible()).
-const { CLOSE_LIMIT, GONE, cleanUp, markUnclosed, watch } = require("../scripts/watch.cjs");
+// And the static server's command line, as the suites start it: Python's own,
+// with a listen queue that holds a browser's connections (staticServer()).
+const { CLOSE_LIMIT, GONE, cleanUp, markUnclosed, staticServer, watch } = require("../scripts/watch.cjs");
 const message = error => error?.message || String(error);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 // How long an interrupted run's clean-up waits for each close: someone is
@@ -157,7 +159,7 @@ async function runBenchmark({ items, options, scan, output = "browser-artifacts/
   const launch = dependencies.launch || (() => require("playwright")[options.engine].launch({ headless: true,
     handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false }));
   const startServer = dependencies.startServer || (() => spawn("python",
-    ["-m", "http.server", new URL(base).port || "80", "--bind", "127.0.0.1", "--directory", options.site || "_site"], { stdio: "ignore" }));
+    staticServer(new URL(base).port || "80", options.site || "_site"), { stdio: "ignore" }));
   const wait = dependencies.waitForServer || waitForServer;
   const persist = dependencies.writeReport || writeReport;
   const log = dependencies.log || console.log;

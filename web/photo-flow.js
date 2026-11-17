@@ -97,7 +97,8 @@ export function setupPhotoFlow({
     captured = null,
     saving = false,
     // The page's idle interpreter while the camera opens: the live previews
-    // take it over once they start, and it goes back if they never do.
+    // take it over once they start, and it goes back if they never do. None
+    // is parked while Editing is set to Play: the page then keeps its own.
     parkedSolver = null,
     // A Clear tap in progress, and the check that a resumed stream delivers frames.
     resuming = null,
@@ -426,10 +427,15 @@ export function setupPhotoFlow({
     // choice of picture, says what happens in its own words (taskStopped).
     dropped = null;
     stopCamera();
-    // Previews that solve take over the page's interpreter; without automatic
-    // solving, or while Editing is set to Play, the camera only reads and needs
-    // none, and the interpreter is released as before.
-    parkedSolver = releaseSolver?.($("auto-solve").checked === true && !inPlay()) ?? null;
+    // Previews that solve take over the page's interpreter. Without automatic
+    // solving the camera only reads and needs none, and the interpreter is
+    // released as before. While Editing is set to Play the camera only reads
+    // too, but the interpreter stays where it is, with the page and alive,
+    // whatever the box says (the owner's choice, November 2026): Check and
+    // Hint are what a player asks for next, and they then do not wait for
+    // Python to start again. The price is its memory while the camera reads:
+    // one interpreter, as previews that solve hold one.
+    parkedSolver = inPlay() ? null : (releaseSolver?.($("auto-solve").checked === true) ?? null);
     captured = null;
     const previewCanvas = $("live-preview");
     previewCanvas.getContext?.("2d")?.clearRect?.(0, 0, previewCanvas.width, previewCanvas.height);

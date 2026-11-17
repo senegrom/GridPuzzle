@@ -34,6 +34,56 @@ two-root directory the paired suites use to compare the scanner with a pinned
 earlier one. The harness stops its servers and removes those folders as the
 process exits, on a signal too.
 
+The server is Python's own, started from a short program in place of `python
+-m http.server` (`staticServer()` in `scripts/watch.cjs`; `serve()`,
+`detect_benchmark_regressions` and the corpus benchmark runner all start
+`python` with it): the same classes, the same first line, from which `serve()`
+reads the port, and the same answers, with one difference, the queue of
+connections that wait to be accepted. `http.server` asks for 5. A browser opens
+six connections to a host at once, each of the forty-odd requests of a page
+load is a connection of its own, since the server speaks HTTP/1.0, and a suite
+may have two pages. When the server loses the processor for a moment, a queue
+of 5 is full, and Windows refuses every further connection at once (Chromium
+hears of it within 4 to 6 ms; a plain socket, as the Python test's, some two
+seconds later, after Windows' own retries): the page
+never gets a module it asked for and never marks itself ready. Until November
+2026 the suites stopped that way on a loaded Windows machine, at a page load
+that "did not become ready" within its 20 s, in another phase each time and
+most often late in a run (Chromium takes a file from its cache while the file
+is fresh, for a tenth of its age, so on a site just built the early loads never
+reach the server). Measured with the server's process held still, on Python
+3.12.10 and 3.14.5 on Windows 11: of 6, 12, 64 and 128 connections opened at
+once, `python -m http.server` took 5 and refused the rest, the sixth of a
+browser's six among them, and the program took them all. Page loads that
+fetched every file from `python -m http.server` did not become ready in 8 of
+26 at 75 to 100% CPU and in 18 of 60 at 97 to 100%, in none of 54 at 45 to
+68%, and in none of 80 from a server with a deep queue at 98 to 100% (a Node
+server with a queue of 511; the review of #199). On 2026-11-15, with other work holding this machine at 80 to
+100% CPU, two of two runs of `live_camera` in Chromium on `python -m
+http.server` stopped at such a page load, and three of three with a queue of
+128 passed in full: one on the program, beside a whole unit-test run, in
+295 s, and two on `http.server` with its queue raised from outside. In the
+review of the change, the same day at 73 to 100% CPU, Chromium loaded the
+built site from the two servers in turn, each load in a context of its own:
+11 of 27 loads from `python -m http.server` did not become ready, with 44
+requests refused and no other failure, and none of 27 from the program, with
+no request failed.
+`tests/test_static_server.py` runs the program on every Python leg of CI: it
+passes the project's lint as the Python file it would be (it is text in a
+JavaScript module, which `ruff check .` does not see), names its port in the
+line `http.server` prints, each server getting a port of its own when asked
+for port 0, answers a page, a module, a WebAssembly file, the harness's
+`HEAD`, a missing file and a file the browser already has exactly as `python
+-m http.server` does, in every header but the time of the answer, serves a
+port it is given, ends on an interrupt with exit code 0 as `http.server` does
+(where one can be sent to a single process, so not on Windows), and takes 64
+connections opened at once while its process is held, where on Windows
+`http.server`'s own queue does not; and no script starts a `python` of its own
+any other way, each of the three starts being held as it is written, options
+and all.
+`web/tests/static-server.test.js` has the arguments, the queue of 128, and
+that `serve()` starts `python` with exactly those.
+
 A report starts as `{ browser, version, errors, ended, cleanupErrors }`, the
 suite adds what it measures, and `status` says `passed` or `failed`, with the
 failure's stack in `failure`. `errors` and `ended` are kept by `watch()`
@@ -1424,7 +1474,8 @@ to it. Three suites serve the site themselves: `ocr_latency` from its own Node
 server on port 8777, which can serve a second build beside it; `solver_update`
 from a Node server on a port the system picks, to control what each request
 returns; and `detect_benchmark_regressions` through the corpus benchmark
-runner, which starts `http.server` on port 8782. The stale-build check inside
+runner, for which it starts the same Python server as `serve()` does on port
+8782. The stale-build check inside
 `photo_read` serves the built site from a Node server on a port the system
 picks too, as built and then as later deploys would serve it. `review_safety` and
 `structural_capture` do not run alone: `live_camera` and `review_safety` call
@@ -1611,7 +1662,24 @@ with each such line, which fails it, and with lines of a camera that only
 reads, which pass); the export records Play, and the shutter keeps the
 reading. It took 5.1 and 6.0 s in two local Chromium runs (2026-11-13), and
 4.4 s in Chromium and 12.7 s in WebKit on the hosted runner (run
-43335500472).
+43335500472). Since the owner's next choice of that month, that the page
+keeps its Python interpreter while the camera reads in Play, the step first
+has the page start one (the board on the page, loaded again) and waits for
+it. Three seconds into the reading it checks that the page has it, warm: a
+camera that took it over and handed it back as it closed, which the checks
+after the close cannot tell from one that left it alone, would leave the page
+without one meanwhile (the review of the change built such a page, and the
+step passed on it until it had this check). Once the camera has closed it
+checks that the interpreter is still warm and that no solver was started from
+the tap on, so that it is the same one (`web/tests/step-cleanups.test.js`
+plays the step with an interpreter that is not the page's while the camera
+reads, that is gone afterwards, or another, each of which fails it, and holds
+what the step asks the page to the letter, since its stand-in page answers
+whatever it is asked). Loading the board again also clears the board's review
+marks; no later phase reads them. With that start of Python the step
+took 6.9, 7.6 and 7.5 s in three local Chromium runs (2026-11-15, on a
+machine that other work had at 80 to 100% CPU), and 6.9 s in Chromium and
+14.5 s in WebKit on the hosted runner (run 44067502487).
 `web/tests/suite-docs.test.js` fails when this section
 does not name a phase the suite times.
 

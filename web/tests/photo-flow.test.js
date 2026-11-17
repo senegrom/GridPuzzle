@@ -93,7 +93,8 @@ const tick = () => new Promise((resolve) => setImmediate(resolve));
 // own play() and pause() run (counted all the same), and `makeLive(options)`
 // builds the live camera instead of the fake. `h.diagnostics` is the page's
 // own, as handed to the live camera.
-async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false, video = null, makeLive = null } = {}) {
+async function cameraHarness(t, { capture = null, play = async () => {}, freshStreams = false, video = null, makeLive = null,
+  releaseSolver, adoptSolver } = {}) {
   const { setupPhotoFlow } = await import("../photo-flow.js");
   const nodes = new Map(), statuses = [], listeners = {}, tracks = [], lives = [], saved = [];
   let flow = null, diagnostics = null, liveOptions = null;
@@ -156,6 +157,8 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
   flow = setupPhotoFlow({
     $, state: {}, scanner: {}, stopTask() {}, status: (...args) => statuses.push(args),
     savePicture: async (annotated, createdAt) => { saved.push({ annotated, createdAt }); return true; },
+    // The page's interpreter, for a test that watches who asks for it.
+    releaseSolver, adoptSolver,
     liveFactory: (options) => {
       diagnostics = options.diagnostics; liveOptions = options;
       const live = makeLive ? makeLive(options) : { view: "live", resumed: 0, stats: { scheduling: { observed: 0 } },
@@ -185,6 +188,41 @@ function manualTimers(t) {
 }
 
 const stillPicture = () => ({ photo: {}, annotated: {}, found: null, corners: null, createdAt: 1 });
+
+// While Editing is set to Play the page keeps its interpreter through the
+// whole of a camera session (the owner's choice, November 2026). The opening
+// does not ask for it (solver-handoff.test.js), and nothing after it does:
+// the shutter, Retake, a page that is hidden, Close and Escape. `asked` is
+// every call for the interpreter's hand-over or release, `given` every one
+// handed back. Outside Play each opening asks once, as it always did, and
+// nothing after it does either.
+for (const [tool, solve, each] of [["play", true, []], ["play", false, []], ["value", true, [true]], ["value", false, [false]]])
+  test(`with Editing set to ${tool} and automatic solving ${solve ? "ticked" : "unticked"}, ${each.length ? "only its opening asks" : "nothing in a camera session asks"} for the page's interpreter`, async (t) => {
+    const asked = [], given = [];
+    const h = await cameraHarness(t, { capture: stillPicture(),
+      releaseSolver: (handOff) => { asked.push(handOff); return null; }, adoptSolver: (worker) => given.push(worker) });
+    h.$("edit-tool").value = tool; h.$("auto-solve").checked = solve;
+    const openings = (count) => Array.from({ length: count }, () => each).flat();
+    await h.$("camera").onclick();
+    assert.equal(h.liveOptions.solverWorker, null);
+    assert.deepEqual(asked, openings(1));
+    await h.$("take-photo").onclick(); await tick();
+    assert.deepEqual(asked, openings(1), "the shutter");
+    await h.$("retake-photo").onclick();
+    assert.deepEqual(asked, openings(2), "Retake is an opening");
+    h.hide();
+    assert.equal(h.$("camera-panel").hidden, true, "the hidden page released the camera");
+    assert.deepEqual(asked, openings(2), "a hidden page");
+    await h.$("camera").onclick();
+    h.$("close-camera").onclick();
+    assert.deepEqual(asked, openings(3), "Close");
+    await h.$("camera").onclick();
+    h.listeners.keydown({ key: "Escape", preventDefault() {} });
+    assert.equal(h.$("camera-panel").hidden, true);
+    assert.deepEqual(asked, openings(4), "Escape");
+    assert.deepEqual(given, [], "and nothing is handed back that was never taken");
+    assert.equal(h.liveStarted, 4);
+  });
 
 test("hiding the page keeps a captured still on screen but releases a live camera", async (t) => {
   const h = await cameraHarness(t, { capture: stillPicture() });
@@ -1273,7 +1311,9 @@ function photoHarness(t) {
     uncertain: new Set([0]), cageUncertain: new Set(), blackReadings: [], needsReview: true,
     notes: [], play: fitPlay(puzzle, []), hints: new Set(), selected: [], history: [] };
   let epoch = 0, capture, found, saved, detection = null, solves = 0;
-  const errors = [], statuses = [], stopTask = () => ++epoch;
+  // `handed`: each call for the page's interpreter, with what it asked (true
+  // to take it over, false to have it released).
+  const errors = [], statuses = [], handed = [], stopTask = () => ++epoch;
   const storage = { set: (_key, value) => { saved = value; }, get: key => key === 'gridpuzzle-session-v1' ? saved : null };
   const setLayout = layout => {
     state.layout = { ...layout };
@@ -1288,6 +1328,7 @@ function photoHarness(t) {
   render() {}, status(...lines) { statuses.push(lines); }, remember() {}, persist: () => saveSession(storage, state), drawBoard() {},
   clearPhotoMapping() { state.rectified = state.photoSource = null; }, solveNow() { solves++; }, boxDefault: boxShape,
   setLayout, getJobId: () => epoch, setDeadline() {}, savePicture: async () => true,
+  releaseSolver(handOff) { handed.push(handOff); return null; },
   liveFactory({ diagnostics }) { return {
     start() { diagnostics.event({ stage: 'checking', reason: 'read-complete', found: capture.found }); },
     // Deliberately leave the prepared report in place: the handoff itself must
@@ -1299,7 +1340,7 @@ function photoHarness(t) {
   } });
   const diag = (id = 'scan-diagnostics') => Object.fromEntries(
     ['prepare', 'image-toggle', 'preview', 'error', 'image', 'download'].map(key => [key, $(id + '/' + key)]));
-  return { $, state, errors, statuses, storage, encoded, diag, setLayout, solves: () => solves,
+  return { $, state, errors, statuses, handed, storage, encoded, diag, setLayout, solves: () => solves,
     setFound: value => { found = value; }, setCapture: value => { capture = value; },
     setDetection: value => { detection = value; } };
 }
@@ -1676,7 +1717,9 @@ for (const [what, reading] of Object.entries(captures)) test(`Review captured cl
 // While Editing is set to Play the camera only reads (live-camera.js), and
 // its shutter keeps the reading with the picture. Review captured clues takes
 // it to the board under review, as under any tool: nothing is solved there,
-// and Editing stays on Play, so the board is the user's to solve.
+// and Editing stays on Play, so the board is the user's to solve. In Play the
+// page's interpreter is asked for at no point of that way, from the opening
+// to the board; under Clues the opening takes it over, once.
 for (const tool of ['play', 'value']) test(`Review captured clues with Editing set to ${tool} takes the reading to the board unsolved and leaves Editing as it is`, async t => {
   const h = photoHarness(t), found = { puzzle: h.state.puzzle, notes: [], rectified: canvas(200, 200),
     cellUncertain: [], cageUncertain: [], needsReview: true };
@@ -1684,6 +1727,7 @@ for (const tool of ['play', 'value']) test(`Review captured clues with Editing s
   h.setCapture({ photo: canvas(), annotated: canvas(), corners: h.state.corners, createdAt: 1, found });
   await h.$('camera').onclick(); h.$('take-photo').onclick(); await tick(); h.$('use-live-capture').onclick(); await tick();
   assert.deepEqual(h.errors, []);
+  assert.deepEqual(h.handed, tool === 'play' ? [] : [true], 'who asked for the page\'s interpreter');
   assert.equal(h.state.needsReview, true); assert.equal(h.solves(), 0, 'not solved');
   assert.equal(h.$('edit-tool').value, tool);
   assert.deepEqual(h.statuses.at(-1), ['Captured clues ready for review.',
