@@ -1661,7 +1661,24 @@ with each such line, which fails it, and with lines of a camera that only
 reads, which pass); the export records Play, and the shutter keeps the
 reading. It took 5.1 and 6.0 s in two local Chromium runs (2026-11-13), and
 4.4 s in Chromium and 12.7 s in WebKit on the hosted runner (run
-43335500472).
+43335500472). Since the owner's next choice of that month, that the page
+keeps its Python interpreter while the camera reads in Play, the step first
+has the page start one (the board on the page, loaded again) and waits for
+it. Three seconds into the reading it checks that the page has it, warm: a
+camera that took it over and handed it back as it closed, which the checks
+after the close cannot tell from one that left it alone, would leave the page
+without one meanwhile (the review of the change built such a page, and the
+step passed on it until it had this check). Once the camera has closed it
+checks that the interpreter is still warm and that no solver was started from
+the tap on, so that it is the same one (`web/tests/step-cleanups.test.js`
+plays the step with an interpreter that is not the page's while the camera
+reads, that is gone afterwards, or another, each of which fails it, and holds
+what the step asks the page to the letter, since its stand-in page answers
+whatever it is asked). Loading the board again also clears the board's review
+marks; no later phase reads them. With that start of Python the step
+took 6.9, 7.6 and 7.5 s in three local Chromium runs (2026-11-15, on a
+machine that other work had at 80 to 100% CPU), and 6.9 s in Chromium and
+14.5 s in WebKit on the hosted runner (run 44067502487).
 `web/tests/suite-docs.test.js` fails when this section
 does not name a phase the suite times.
 

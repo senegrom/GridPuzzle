@@ -8,6 +8,10 @@ import { setupPhotoFlow } from "../photo-flow.js";
 // page's idle one, and closing the camera hands an idle one back, so Solve
 // after live scanning does not download and start Python again.
 
+// What the tests below put stand-ins for (flow()), as this process has them
+// before any test runs: the last test of the file finds them in place again.
+const OWN = Object.fromEntries(["document", "navigator", "setTimeout", "clearTimeout"].map((key) => [key, globalThis[key]]));
+
 function fakeWorker(name) {
   return { name, messages: [], terminated: false,
     postMessage(message) { this.messages.push(message); }, terminate() { this.terminated = true; } };
@@ -169,11 +173,73 @@ test("without automatic solving the camera takes no interpreter", async (t) => {
 // While Editing is set to Play the camera only reads (its previews solve
 // nothing, live-camera.js), so it takes no interpreter either, though
 // automatic solving is ticked. Under every other editing tool it takes it.
+// In Play the page keeps its own, alive: the camera does not ask for its
+// release, which would end it (app.js releaseSolver), so Check and Hint after
+// the camera do not wait for Python again (the owner's choice, November
+// 2026; until then it was released as without automatic solving).
 for (const editing of ["play", "value", "cage", "inequality"])
-  test(`with Editing set to ${editing} and automatic solving ticked the camera takes ${editing === "play" ? "no interpreter" : "the page's interpreter"}`, async (t) => {
+  test(`with Editing set to ${editing} and automatic solving ticked the camera takes ${editing === "play" ? "no interpreter, and the page keeps its own" : "the page's interpreter"}`, async (t) => {
     const stream = { getTracks: () => [] };
     const h = flow(t, { mediaDevices: { getUserMedia: async () => stream }, editing });
     await h.$("camera").onclick();
-    assert.deepEqual(h.handed, [editing !== "play"]);
+    assert.deepEqual(h.handed, editing === "play" ? [] : [true]);
     assert.equal(h.factories[0].solverWorker, editing === "play" ? null : h.page);
+    h.photo.stopCamera();
+    assert.deepEqual(h.handed, editing === "play" ? [] : [true], "nor is it asked for as the camera closes");
+    assert.deepEqual(h.returned, [], "and nothing comes back that was never taken");
   });
+
+// Whatever the box says: without automatic solving the interpreter is
+// released under every other editing tool, and kept in Play all the same.
+for (const editing of ["play", "value", "cage", "inequality"])
+  test(`with Editing set to ${editing} and automatic solving unticked the page's interpreter is ${editing === "play" ? "kept" : "released"}`, async (t) => {
+    const stream = { getTracks: () => [] };
+    const h = flow(t, { mediaDevices: { getUserMedia: async () => stream }, autoSolve: false, editing });
+    await h.$("camera").onclick();
+    assert.deepEqual(h.handed, editing === "play" ? [] : [false]);
+    assert.equal(h.factories[0].solverWorker, null);
+    h.photo.stopCamera();
+    assert.deepEqual(h.handed, editing === "play" ? [] : [false], "nor is it asked for as the camera stops");
+    assert.deepEqual(h.returned, []);
+  });
+
+// A camera that never starts, or is opened a second time (Retake), finds the
+// interpreter where it was: nothing was taken, so nothing has to come back.
+// Two tests, each with a harness of its own: flow() puts the globals it
+// replaces back as its test ends, and a second harness in the same test would
+// have the first one's stand-ins put back last, for the rest of the file.
+test("in Play the page keeps its interpreter when the camera never starts", async (t) => {
+  const none = flow(t, { mediaDevices: undefined, editing: "play" });
+  await none.$("camera").onclick();
+  assert.deepEqual(none.handed, []); assert.equal(none.factories.length, 0); assert.deepEqual(none.returned, []);
+});
+
+test("in Play the page keeps its interpreter at each opening", async (t) => {
+  const stream = { getTracks: () => [] };
+  const h = flow(t, { mediaDevices: { getUserMedia: async () => stream }, editing: "play" });
+  await h.$("camera").onclick(); await h.$("camera").onclick(); await h.$("retake-photo").onclick();
+  assert.deepEqual(h.handed, []); assert.deepEqual(h.returned, []);
+  assert.deepEqual(h.factories.map((options) => options.solverWorker), [null, null, null]);
+});
+
+// Play is read as the camera opens: left before the next opening, the camera
+// takes the interpreter again, and entered before the next, it leaves it.
+test("the interpreter goes by what Editing is set to as the camera opens", async (t) => {
+  const stream = { getTracks: () => [] };
+  const h = flow(t, { mediaDevices: { getUserMedia: async () => stream }, editing: "play" });
+  await h.$("camera").onclick(); h.photo.stopCamera();
+  h.$("edit-tool").value = "value";
+  await h.$("camera").onclick(); h.photo.stopCamera();
+  h.$("edit-tool").value = "play";
+  await h.$("camera").onclick(); h.photo.stopCamera();
+  assert.deepEqual(h.handed, [true]);
+  assert.deepEqual(h.factories.map((options) => options.solverWorker), [null, h.page, null]);
+});
+
+// Last in the file. flow() puts back what it replaced as its test ends, in
+// the order its tests registered that: a test with two harnesses left the
+// first one's stand-ins in place for every test after it, among them a
+// setTimeout that never calls back.
+test("the tests above leave the process its own document, navigator and timers", () => {
+  for (const [key, own] of Object.entries(OWN)) assert.equal(globalThis[key], own, key);
+});
