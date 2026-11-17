@@ -267,22 +267,24 @@ def test_no_script_starts_a_server_of_its_own():
     staticServer(): a fourth `-m http.server` would have the queue of 5. It
     reads the scripts' text: a start through any of Node's ways to start a
     process whose first argument is a quoted python (python3, python.exe), and
-    `-m http.server` written out anywhere but in the comment that names it.
-    Each of the three starts is here as it is written, up to its options: the
-    port and the folder it hands on are the ones its own pages are then loaded
-    from, and one that swapped the two, or served another port or folder,
-    would show in no test but a browser's."""
+    `-m http.server` written out anywhere but in the comment that names it (a
+    shell line that came to Python's server another way would pass).
+    Each of the three starts is here as it is written, to the end of its
+    line, options and all: the port and the folder it hands on are the ones
+    its own pages are then loaded from, and an option can change what is
+    served as well (a `cwd`). For the corpus runner's start and for the
+    detection check's port, no other test would tell but a browser's."""
     starts = []
     for path in sorted([*(_ROOT / "scripts").glob("*.cjs"), *(_ROOT / "corpus").glob("*.cjs")]):
         text = path.read_text(encoding="utf-8")
         starts += [
-            (path.name, text[found.end() :].split("\n", 1)[0].split(", {", 1)[0])
+            (path.name, text[found.end() :].split("\n", 1)[0])
             for found in re.finditer(r"""\b(?:spawn|exec|execFile|fork)(?:Sync)?\(\s*["'`]python[\d.]*(?:\.exe)?["'`]\s*,\s*""", text)
         ]
         if path != _WATCH:
             assert not re.search(r"""-m["'`,\s]+["'`]?http\.server""", text), path.name
     assert sorted(starts) == [
-        ("benchmark-runner.cjs", 'staticServer(new URL(base).port || "80", options.site || "_site")'),
-        ("detect_benchmark_regressions.cjs", 'staticServer(8782, "_site")'),
-        ("harness.cjs", "staticServer(port, directory)"),
+        ("benchmark-runner.cjs", 'staticServer(new URL(base).port || "80", options.site || "_site"), { stdio: "ignore" }));'),
+        ("detect_benchmark_regressions.cjs", 'staticServer(8782, "_site"), { stdio: "ignore" });'),
+        ("harness.cjs", 'staticServer(port, directory), { stdio: ["ignore", "pipe", "ignore"] });'),
     ]

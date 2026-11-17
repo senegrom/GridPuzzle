@@ -57,8 +57,8 @@ once, `python -m http.server` took 5 and refused the rest, the sixth of a
 browser's six among them, and the program took them all. Page loads that
 fetched every file from `python -m http.server` did not become ready in 8 of
 26 at 75 to 100% CPU and in 18 of 60 at 97 to 100%, in none of 54 at 45 to
-68%, and in none of 80 from a server with a deep queue at 98 to 100% (the
-review of #199). On 2026-11-15, with other work holding this machine at 80 to
+68%, and in none of 80 from a server with a deep queue at 98 to 100% (a Node
+server with a queue of 511; the review of #199). On 2026-11-15, with other work holding this machine at 80 to
 100% CPU, two of two runs of `live_camera` in Chromium on `python -m
 http.server` stopped at such a page load, and three of three with a queue of
 128 passed in full: one on the program, beside a whole unit-test run, in
@@ -79,7 +79,8 @@ port it is given, ends on an interrupt with exit code 0 as `http.server` does
 (where one can be sent to a single process, so not on Windows), and takes 64
 connections opened at once while its process is held, where on Windows
 `http.server`'s own queue does not; and no script starts a `python` of its own
-any other way, each of the three starts being held as it is written.
+any other way, each of the three starts being held as it is written, options
+and all.
 `web/tests/static-server.test.js` has the arguments, the queue of 128, and
 that `serve()` starts `python` with exactly those.
 

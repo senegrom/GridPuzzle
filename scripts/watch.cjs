@@ -35,7 +35,10 @@ const assert = require("node:assert/strict");
    with this module wherever a test or a workflow takes the suites' modules.
    It has no backslash, no backquote and no dollar sign before a brace, so
    that its text here is the program as Python gets it;
-   tests/test_static_server.py takes it from this file by that and runs it. */
+   tests/test_static_server.py takes it from this file by that and runs it,
+   on the tests' own Python. The suites start it with the `python` of the
+   PATH, which may be an older one and which no test runs it on (by hand it
+   ran on 3.12.10): it is to keep to what an older Python has. */
 const STATIC_SERVER = `import contextlib
 import functools
 import http.server
