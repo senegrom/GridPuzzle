@@ -428,14 +428,20 @@ async function pageLyingSideways(page,report) {
 // the camera wrote its first, once the video played: "Solution preview —
 // frozen. …" after a session that froze, "The grid looks sideways. …" after
 // the phase before this one. That phase's line is the old line here; on a
-// page whose camera has not been opened yet, the phase opens and closes it
-// once for one. The line is read as the tap is heard on the document, which
-// is after the button's own handler and, with the suite's camera, which
-// answers at once, after the panel is shown; and every line written from the
-// tap on is kept up to the camera's own first line, its aiming line (WebKit
-// has the page's offer of Start preview before it). The starting text is the
-// first of them and the old line is none of them. Nothing here is timed. The
-// listener hears one tap and the observer stops at the aiming line.
+// page whose camera has not been opened yet, the phase opens it once first,
+// up to the camera's aiming line, and closes it, for one (not at the first
+// line that is not the starting text: in WebKit that can be the page's offer
+// of Start preview, which the next opening may well write again). The line
+// is read as the tap is heard on the document, which is after the button's
+// own handler and, with the suite's camera, which answers at once, after the
+// panel is shown; and from the tap on the line is kept as it stands each time
+// the page has written it, up to the camera's own first line, its aiming line
+// (in WebKit the page's offer of Start preview can come before it). An
+// observer is told once for a run of the page's script, so two writes in one
+// run would be kept as one line, the second; each write of an opening ends a
+// run of its own. The starting text is the first of the lines and the old
+// line is none of them. Nothing here is timed. The listener hears one tap and
+// the observer stops at the aiming line.
 // The page is then loaded afresh with its camera fixture. The new session may
 // have read and frozen by the time it is closed, and the preview canvas keeps
 // a session's "frozen" mark and counts until the next session draws: the wait
@@ -463,8 +469,9 @@ const AIMING_LINE="^Hold the grid steady\\. Recognition (and solution )?appears?
 async function openedAgain(page,report,base) {
   await page.evaluate(()=>{window.liveMode="grid";});
   if(await page.textContent("#camera-help")===CAMERA_START_HELP){
+    await page.evaluate(watchOpening,AIMING_LINE);
     await startLive(page);
-    await page.waitForFunction(start=>document.getElementById("camera-help").textContent!==start,CAMERA_START_HELP,{timeout:150000});
+    await page.waitForFunction(()=>openedAgain.aimed===true,null,{timeout:150000});
     await page.click("#close-camera");
   }
   const old=await page.textContent("#camera-help");

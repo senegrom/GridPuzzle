@@ -8,13 +8,13 @@ import { CAMERA_START_HELP } from '../photo-flow.js';
 // with its starting text when it is opened again, and not with the last line
 // of the session before, which it showed until the camera's first line before
 // the page set the text at every opening (November 2026). The phase reads the
-// help line as the tap is heard on the document, and every line written from
-// the tap on up to the camera's aiming line. Here: the phase played on a
-// stand-in page that answers what it reads, as the new page does and as the
-// old one did, so that each of its checks is seen to fail on its own; and
-// what it leaves in the page to hear the tap and keep the lines
-// (watchOpening), run on a stand-in for a page's document. Loading the suite
-// needs no Playwright.
+// help line as the tap is heard on the document, and keeps the line as it
+// stands each time the page has written it, from the tap on up to the
+// camera's aiming line. Here: the phase played on a stand-in page that
+// answers what it reads, as the new page does and as the old one did, so that
+// each of its checks is seen to fail on its own; and what it leaves in the
+// page to hear the tap and keep the lines (watchOpening), run on a stand-in
+// for a page's document. Loading the suite needs no Playwright.
 const require = createRequire(import.meta.url);
 const camera = require('../../scripts/live_camera_regressions.cjs');
 const source = (name) => fs.readFileSync(new URL(name, import.meta.url), 'utf8');
@@ -60,7 +60,7 @@ function standIn({ helps = [OLD], seen }) {
       calls.push({ kind: 'evaluate', run, source: text, argument });
       return text === '()=>window.openedAgain' ? structuredClone(seen) : undefined;
     },
-    async waitForFunction(run, argument) { calls.push({ kind: 'waitForFunction', source: String(run).replace(/\s+/g, ''), argument }); },
+    async waitForFunction(run, argument, options) { calls.push({ kind: 'waitForFunction', source: String(run).replace(/\s+/g, ''), argument, options }); },
     async click(selector) { calls.push({ kind: 'click', selector }); },
     async goto(url) { calls.push({ kind: 'goto', url }); },
     async waitForSelector(selector) { calls.push({ kind: 'waitForSelector', selector }); },
@@ -77,40 +77,71 @@ const played = async (answers) => {
   const error = await camera.openedAgain(page, report, BASE).then(() => undefined, (failure) => failure);
   return { page, report, error };
 };
+// The phase's wait for the aiming line, as the page is asked.
+const AIMED = '()=>openedAgain.aimed===true';
 // What the phase did, in order, in a few words a call.
 const steps = (page) => page.calls.map((call) => (call.kind === 'click' ? `click ${call.selector}`
   : call.kind === 'textContent' ? 'read the help line'
     : call.kind === 'evaluate' && call.run === camera.watchOpening ? 'watch'
       : call.kind === 'evaluate' && call.source === '()=>window.openedAgain' ? 'read what was kept'
         : call.kind === 'evaluate' && call.source.includes('navigator.mediaDevices') ? 'camera fixture'
-          : call.kind === 'waitForFunction' && call.source === '()=>openedAgain.aimed===true' ? 'wait for the aiming line'
-            : call.kind === 'waitForFunction' && call.source.includes('textContent!==start') ? 'wait for a line of the session'
-              : call.kind === 'goto' ? `goto ${call.url}` : call.kind === 'waitForSelector' ? `wait for ${call.selector}` : null)).filter(Boolean);
+          : call.kind === 'evaluate' && call.source === '()=>{window.liveMode="grid";}' ? 'the paper shows its grid'
+            : call.kind === 'waitForFunction' && call.source === AIMED ? 'wait for the aiming line'
+              // startLive()'s own wait, for the video or the offer of Start preview, is part of the tap; any other wait is told.
+              : call.kind === 'waitForFunction' && call.source.includes('!start.hidden||video.videoWidth>0') ? null
+                : call.kind === 'waitForFunction' ? `another wait: ${call.source}`
+                  : call.kind === 'goto' ? `goto ${call.url}` : call.kind === 'waitForSelector' ? `wait for ${call.selector}` : null)).filter(Boolean);
 const NEW = { tap: CAMERA_START_HELP, lines: [CAMERA_START_HELP, AIMING], aimed: true };
 const REOPENED = ['watch', 'click #camera', 'wait for the aiming line', 'read what was kept', 'click #close-camera',
   `goto ${BASE}`, 'wait for body[data-ready="true"]', 'camera fixture'];
+// Each wait of the phase for the aiming line has the suite's long limit (a
+// camera slow to start is no failure of the page) and no argument.
+const waits = (page) => page.calls.filter((call) => call.kind === 'waitForFunction' && call.source === AIMED)
+  .map(({ argument, options }) => ({ argument, options }));
+const LONG = { argument: null, options: { timeout: 150000 } };
 
 test('the phase passes where the tap sets the starting text and the camera\'s aiming line follows it, on the line the phase before left', async () => {
   const { page, report, error } = await played({ seen: NEW });
   assert.equal(error, undefined);
   assert.deepEqual(report.checks, [CHECK]);
   assert.deepEqual(report.openedAgain, { old: OLD, ...NEW });
-  // The panel holds another session's line already: that is the old line,
-  // read twice (is there one? which?). Then the listener and the observer,
-  // the tap, the wait for the aiming line, the read, the camera closed, and
-  // the page loaded afresh with its camera fixture, since the new session may
+  // The paper shows its grid, whatever the phase before left it showing. The
+  // panel holds another session's line already: that is the old line, read
+  // twice (is there one? which?). Then the listener and the observer, the
+  // tap, the wait for the aiming line, the read, the camera closed, and the
+  // page loaded afresh with its camera fixture, since the new session may
   // have frozen and the preview canvas would carry its mark to the next phase.
-  assert.deepEqual(steps(page), ['read the help line', 'read the help line', ...REOPENED]);
+  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', 'read the help line', ...REOPENED]);
+  assert.deepEqual(waits(page), [LONG]);
   const watch = page.calls.find((call) => call.run === camera.watchOpening);
   assert.equal(watch.argument, camera.AIMING_LINE, 'the observer is told the aiming line, at which it stops');
 });
 
-test('on a page whose camera has not been opened the phase opens and closes it once first, for a line to be the old one', async () => {
+// That session of its own is watched as the reopening is, up to the camera's
+// aiming line, and closed only then. Closed at the first line that is not the
+// starting text, as it was at first, it left WebKit's "No camera frame
+// arrived. Tap Start preview to retry." as the old line, which the reopening
+// writes again before its aiming line: the phase then failed on a page that
+// was right (the review's run with a camera that gives no frame until Start
+// preview).
+test('on a page whose camera has not been opened the phase opens it once first, up to the aiming line, and closes it, for a line to be the old one', async () => {
   const { page, report, error } = await played({ helps: [CAMERA_START_HELP, AIMING], seen: NEW });
   assert.equal(error, undefined);
   assert.deepEqual(report.openedAgain, { old: AIMING, ...NEW });
-  assert.deepEqual(steps(page), ['read the help line', 'click #camera', 'wait for a line of the session', 'click #close-camera',
-    'read the help line', ...REOPENED]);
+  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', 'watch', 'click #camera', 'wait for the aiming line',
+    'click #close-camera', 'read the help line', ...REOPENED]);
+  assert.deepEqual(waits(page), [LONG, LONG]);
+  for (const watch of page.calls.filter((call) => call.run === camera.watchOpening)) assert.equal(watch.argument, camera.AIMING_LINE);
+});
+
+test('with WebKit\'s offer of Start preview before both aiming lines, the session of its own leaves a line the reopening does not write again', async () => {
+  // The old line is whatever the closed panel holds after the aiming line: a
+  // line of the camera's reading here. The offer is written in both openings.
+  const READING = 'Reading printed clues…';
+  const seen = { tap: CAMERA_START_HELP, lines: [CAMERA_START_HELP, OFFER, AIMING], aimed: true };
+  const { report, error } = await played({ helps: [CAMERA_START_HELP, READING], seen });
+  assert.equal(error, undefined);
+  assert.deepEqual(report.openedAgain, { old: READING, ...seen });
 });
 
 for (const [what, answers, message] of [
@@ -148,7 +179,10 @@ test('a page in WebKit, which offers Start preview before the camera\'s first li
 // watchOpening() runs in the page. Here it runs on a stand-in for a page's
 // document: a help line whose text can be written, a document that hears
 // taps, and observers that are told of each write to the node they watch.
-// `write` is the page writing the help line, `tap` a tap on a button.
+// `write` is the page writing the help line, `tap` a tap on a button. A
+// browser tells an observer once for a run of the page's script, which then
+// reads the line as it stands: each write here is a run of its own, as each
+// write of an opening is in the page.
 function standInDocument(text) {
   const help = { textContent: text }, listeners = [], observers = [], window = {};
   const document = { getElementById: (id) => (id === 'camera-help' ? help : null),

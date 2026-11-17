@@ -1622,10 +1622,18 @@ starting text. The closed panel still holds the last line of the phase before
 is the starting text as the tap is heard on the document, it is the first
 line written from the tap on, and the old line is not written again before
 the camera's own first line, its aiming line (in WebKit the page's offer of
-Start preview comes in between, after eight seconds without a frame). Until
-then a panel opened again showed the old line for that stretch. Nothing in
-the phase is timed. On a page whose camera has not been opened it opens and
-closes it once first, for a line to be the old one.
+Start preview can come in between, after eight seconds without a frame: on
+the hosted runner it came at this phase's opening and not at the one of the
+phase before, in run 43676136613). Until then a panel opened again showed the
+old line for that stretch. Nothing in the phase is timed: an observer keeps
+the line as it stands each time the page has written it. On a page whose
+camera has not been opened the phase opens it once first, up to the camera's
+aiming line, and closes it, for a line to be the old one; closed at the first
+line that is not the starting text, as at first, that session left WebKit's
+offer of Start preview as the old line, which the reopening writes again, and
+the phase then failed on a page that was right (the review's run with a camera
+that gives no frame until Start preview; the hosted runs never take this way
+in).
 The phase ends by loading the page afresh with its camera fixture. Its
 session may have read and frozen by the time it is closed, and the preview
 canvas keeps a session's "frozen" mark and counts until the next session
