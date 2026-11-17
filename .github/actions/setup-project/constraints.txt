@@ -9,7 +9,7 @@
 # tests; Dependabot leaves those alone.
 colorama==0.4.6
 iniconfig==2.3.1
-markdown-it-py==4.2.0
+markdown-it-py==4.3.0
 mdurl==0.1.2
 numpy==2.5.4
 packaging==26.3
@@ -19,5 +19,5 @@ pluggy==1.7.0
 pygments==2.21.0
 pytest==9.2.0
 rich==15.0.0
-ruff==0.17.4
+ruff==0.17.5
 setuptools==84.2.1
