@@ -215,8 +215,8 @@ test("hiding the page keeps a captured still on screen but releases a live camer
 // the help line at each moment the panel is shown, so an old line that was
 // on screen for that moment is in it. Under every setting: the text is the
 // same whatever Editing is set to and whether automatic solving is ticked,
-// also where the setting changed between two sessions, as in the case the
-// owner saw (a freeze, then Play).
+// also where the setting changed between two sessions, as in the case that
+// led to this (a freeze, then Play: found in the review of the change before).
 for (const [settings, first, then] of [
   ["as the page is installed", { tool: "value", solve: true }, { tool: "value", solve: true }],
   ["with Editing set to Play", { tool: "play", solve: true }, { tool: "play", solve: true }],
