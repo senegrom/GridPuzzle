@@ -8,7 +8,7 @@ const { execFileSync, spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { exitIfUnclosed, watch } = require("./watch.cjs");
+const { exitIfUnclosed, staticServer, watch } = require("./watch.cjs");
 
 /* The engines a run covers: BROWSER_ENGINES, a comma- or space-separated
    subset of chromium and webkit ("webkit" alone in CI's per-engine jobs), or
@@ -96,8 +96,10 @@ for (const [signal, code] of [["SIGHUP", 129], ["SIGINT", 130], ["SIGTERM", 143]
   process.once(signal, () => process.exit(code));
 
 /* Python's http.server serving `directory` on a port the system picks, or on
-   `port` for a suite that stops and restarts its origin. `pages: true` serves
-   the site under /GridPuzzle/ through the _preview link, as GitHub Pages does.
+   `port` for a suite that stops and restarts its origin, with a listen queue
+   that holds a browser's connections (staticServer() in watch.cjs says why).
+   `pages: true` serves the site under /GridPuzzle/ through the _preview link,
+   as GitHub Pages does.
    Resolves to { origin, base, close } once it answers; close() resolves when
    the server has exited. Until then the server holds the process for ever, so
    a suite does what can fail before this call or after close(), which goes in
@@ -110,8 +112,7 @@ async function serve({ directory = "_site", pages = false, port = 0 } = {}) {
     directory = "_preview";
     prefix = "/GridPuzzle/";
   }
-  const server = spawn("python", ["-u", "-m", "http.server", String(port), "--bind", "127.0.0.1", "--directory", directory],
-    { stdio: ["ignore", "pipe", "ignore"] });
+  const server = spawn("python", staticServer(port, directory), { stdio: ["ignore", "pipe", "ignore"] });
   servers.add(server);
   server.once("exit", () => servers.delete(server));
   const close = () => new Promise((resolve) => {
