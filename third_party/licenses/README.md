@@ -7,8 +7,8 @@ not, and are copied into `_site/licenses/` next to the packages' own files.
 
 | File | Covers | Taken from |
 |---|---|---|
-| `pyodide/LICENSE` | Pyodide, MPL-2.0. The npm package ships no licence file. | `LICENSE` at the pyodide/pyodide tag `314.0.7` |
-| `pyodide/CPython-LICENSE` | The CPython standard library in Pyodide's `python_stdlib.zip`, PSF License Agreement and history. | `LICENSE` at the python/cpython tag `v3.14.2`, the version Pyodide 314.0.7 bundles |
+| `pyodide/LICENSE` | Pyodide, MPL-2.0. The npm package ships no licence file. | `LICENSE` at the pyodide/pyodide tag `314.0.8` |
+| `pyodide/CPython-LICENSE` | The CPython standard library in Pyodide's `python_stdlib.zip`, PSF License Agreement and history. | `LICENSE` at the python/cpython tag `v3.14.2`, the version Pyodide 314.0.8 bundles |
 | `tesseract.js-data-eng/LICENSE` | The English `best_int` model from `@tesseract.js-data/eng`, Apache-2.0. The package ships no licence file; its metadata says MIT, but its repository, naptha/tessdata, and the tesseract-ocr/tessdata_best model it redistributes are both Apache-2.0. | `LICENSE` on the `gh-pages` branch of naptha/tessdata |
 
 ## Libraries inside the WebAssembly runtimes
@@ -17,7 +17,7 @@ not, and are copied into `_site/licenses/` next to the packages' own files.
 programs that statically link third-party libraries, so the site ships those
 libraries' licences as well. What each binary links comes from the pinned
 upstream build files: `Makefile.envs`, `cpython/Makefile` and
-`cpython/Setup.local` at the pyodide/pyodide tag `314.0.7`, and `build.sh`,
+`cpython/Setup.local` at the pyodide/pyodide tag `314.0.8`, and `build.sh`,
 `build-scripts/` and the `third_party/` submodule commits at the
 naptha/tesseract.js-core tag `v6.0.0`.
 
