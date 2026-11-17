@@ -1626,7 +1626,8 @@ what the step asks the page to the letter, since its stand-in page answers
 whatever it is asked). Loading the board again also clears the board's review
 marks; no later phase reads them. With that start of Python the step
 took 6.9, 7.6 and 7.5 s in three local Chromium runs (2026-11-15, on a
-machine that other work had at 80 to 100% CPU).
+machine that other work had at 80 to 100% CPU), and 6.9 s in Chromium and
+14.5 s in WebKit on the hosted runner (run 44067502487).
 `web/tests/suite-docs.test.js` fails when this section
 does not name a phase the suite times.
 

@@ -383,11 +383,13 @@ measured in the review of the change; a phone was not measured). The price is
 the interpreter's memory while the camera reads: one interpreter, as the
 previews hold one where they solve (some 155 MB more of the page's own memory
 while the camera reads and 135 MB more once it has closed, in the same
-review's headless Chromium). One case is not kept: opening the camera stops a task that is running,
-as any Stop does, and a stop ends the interpreter with the task, whether it
-was the interpreter's own search or a Read or a grid detection beside an idle
-interpreter (only a photograph still being opened leaves it). The page then
-has none until it is asked again. The preview
+review's headless Chromium). One case is not kept: opening the camera stops a
+task that is running, as any Stop does, and a stop ends the interpreter with
+the task, whether it was the interpreter's own search or a Read or a grid
+detection beside an idle interpreter (only a photograph still being opened
+leaves it). The page then has none until it is asked again, and the first
+Hint starts Python as it did before (measured with a grid detection running
+at the tap, on master's page as well). The preview
 runtime is warmed once per camera session and reloaded in the background after
 a search budget had to terminate it. Realignment cancels an active search but
 keeps an idle or warming worker; the first frame and settings changes do not
@@ -1430,7 +1432,10 @@ Unit tests (`node --test web/tests/*.test.js`):
   once encoded).
   `solver-handoff.test.js`: the interpreter handoff, none without automatic
   solving or with Editing set to Play, and the page's interpreter released
-  without automatic solving and kept in Play, whatever the box says.
+  without automatic solving and kept in Play, whatever the box says;
+  `photo-flow.test.js`: in Play nothing later in a camera session asks for
+  it either (the shutter, Retake, a hidden page, Close, Escape, a capture
+  taken to the board), where under Clues each opening asks once.
 - `live-tracker.test.js` and `clue-recovery.test.js`: stopped workers, late
   results, failures, changed sources and manually protected cells in the
   tracking worker and targeted retries; `clue-reread.test.js`: the editor's
