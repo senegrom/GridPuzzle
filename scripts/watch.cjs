@@ -10,8 +10,59 @@
    stop its servers, and SIGHUP, SIGINT, SIGTERM and SIGBREAK, which end the
    process there, and the corpus benchmarks stop on handlers of their own for
    those four signals, which save their reports first (interruptible() in
-   corpus/benchmark-runner.cjs). */
+   corpus/benchmark-runner.cjs).
+   For the same reason it holds what the harness and the corpus benchmark
+   runner both start, each with a spawn of its own: the static server for the
+   built site, as the arguments of its command line (staticServer()). */
 const assert = require("node:assert/strict");
+
+/* The static server for the built site: Python's own, as `python -m
+   http.server <port> --bind 127.0.0.1 --directory <directory>` runs it, with
+   the same classes and the same first line, which serve() in the harness
+   reads the port from, and one difference: the queue of connections that
+   wait to be accepted. http.server asks for 5
+   (socketserver.TCPServer.request_queue_size). A browser opens six
+   connections to a host at once, every one of the forty-odd requests of a
+   page load is a connection of its own (the server speaks HTTP/1.0), and a
+   suite may have two pages. When the server loses the processor for a moment
+   on a loaded machine, a queue of 5 is full: Windows refuses each further
+   connection at once, the page never gets a module it asked for, and never
+   marks itself ready. The suites then stopped at a page load that "did not
+   become ready", in another phase each time, with nothing wrong in the page
+   (web/TESTING.md has the measurements). 128 holds every connection the
+   pages of a suite can have waiting.
+   It is a program for `python -c` and no file of its own, so that it comes
+   with this module wherever a test or a workflow takes the suites' modules.
+   It has no backslash, no backquote and no dollar sign before a brace, so
+   that its text here is the program as Python gets it;
+   tests/test_static_server.py takes it from this file by that and runs it,
+   on the tests' own Python. The suites start it with the `python` of the
+   PATH, which may be an older one and which no test runs it on (by hand it
+   ran on 3.12.10): it is to keep to what an older Python has. */
+const STATIC_SERVER = `import contextlib
+import functools
+import http.server
+import sys
+
+
+class Server(http.server.ThreadingHTTPServer):
+    request_queue_size = 128
+
+
+port, directory = int(sys.argv[1]), sys.argv[2]
+handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=directory)
+with Server(("127.0.0.1", port), handler) as server:
+    host, port = server.server_address[:2]
+    print(f"Serving HTTP on {host} port {port} (http://{host}:{port}/) ...", flush=True)
+    with contextlib.suppress(KeyboardInterrupt):
+        server.serve_forever()
+`;
+
+/* The arguments that start that server with `python`, serving `directory` on
+   `port` (0: a port the system picks, which the first line of its output
+   names). The directory comes last: the tests' stand-ins for the server say
+   by it what a suite was to serve. */
+const staticServer = (port, directory) => ["-u", "-c", STATIC_SERVER, String(port), directory];
 
 // Playwright's word that the target of a call is gone: a lost browser's
 // calls and a crashed WebKit page's fail with the first, a crashed Chromium
@@ -266,4 +317,4 @@ function watch(browser, { grace = 1000, closeLimit = CLOSE_LIMIT } = {}) {
   };
 }
 
-module.exports = { CLOSE_LIMIT, GONE, READ_LIMIT, cleanUp, exitIfUnclosed, markUnclosed, readWithin, watch };
+module.exports = { CLOSE_LIMIT, GONE, READ_LIMIT, STATIC_SERVER, cleanUp, exitIfUnclosed, markUnclosed, readWithin, staticServer, watch };
