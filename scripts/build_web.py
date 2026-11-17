@@ -30,8 +30,8 @@ NPM = shutil.which("npm") or "npm"
 # reach the deployed site.
 PACKAGES = {
     "pyodide": (
-        "314.0.7",
-        "sha512-0YvXxEhfEdpLfb/XkM2BFAeMROq0iMUX2bzzH9pOttyMcWkwq+HbE5uyuGD82LN7y2q+SNvi/6V5JEsOlD2R1A==",
+        "314.0.8",
+        "sha512-74Wq1kXOC+CCEzAfxuRAO701nAcCMLjf8NrwvWpu8S41dVMXwXmLQ05dYB+F4e46AdnGo0oq7YHSVUpHsoarLQ==",
     ),
     # web/sw.js stores only the core this version's worker would load (its
     # getCore.js SIMD probe); re-check that when moving this pin.
