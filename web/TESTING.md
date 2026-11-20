@@ -773,7 +773,14 @@ does where a part fails (a report that cannot be prepared, a video that gives
 no frame callbacks, a player that throws, one without playback quality or a
 stream); and with the frame scheduler itself behind the panel
 (`live-frame-scheduler.js`), one clock for the three, for each row of the
-table and for both `fallback` cases.
+table, for the fall-back, and for frames that stopped in `fallback` on both
+ways into it.
+A passing run never makes the read, so it was made once on the hosted runner,
+on a camera aiming at blank paper (a probe in run 44754099583, taken out
+again): Chromium 159 and WebKit 27.2 each gave the read's own listener 12
+callbacks in the second, in the mode `video-frame`, with the frames observed
+going up by 13 and the player's count of frames by 12; WebKit's player gives
+that count, and no decoded count (`null`). The read took 1.0 s in both.
 The measurements below were taken with the seven reads the `catch` then had.
 The `catch` then throws the
 suite's own failure again, so in the state above the browser's close fails as

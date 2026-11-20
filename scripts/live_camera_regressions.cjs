@@ -731,17 +731,6 @@ async function run() {
         await time("the camera in Play",()=>readsOnlyInPlay(page,report));
         await time("a page lying sideways",()=>pageLyingSideways(page,report));
         await time("a camera opened again",()=>openedAgain(page,report,server.base));
-        // TEMPORARY, for one run on the hosted runner and taken out again
-        // before this is merged: the read of the camera's frames, made once on
-        // a camera that is aiming at blank paper, to see what each engine
-        // gives it there. The page is left as the phase before left it.
-        await page.evaluate(()=>{window.liveMode="blank";});
-        await startLive(page);
-        await page.waitForFunction(()=>{const video=document.getElementById("video");return video.videoWidth>0&&!video.paused;},null,{timeout:150000});
-        await sleep(1500);
-        console.log(`FRAMES-PROBE ${name} ${JSON.stringify(await page.locator("#camera-panel").evaluate(cameraFrames))}`);
-        await page.click("#close-camera");
-        await idlePage(page,server.base);await fixture(page);
         await time("the freeze's wait, off by default and on through its checkbox",async()=>{
           // "Wait up to 3 s for clearer clues before freezing" is off by
           // default: a solved reading with a yellow clue a retry could still
