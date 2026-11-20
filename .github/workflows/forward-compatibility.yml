@@ -123,11 +123,20 @@ jobs:
       - name: Compile Python sources with warnings as errors
         run: python -m compileall -q gridsolver tests scripts Examples run.py
 
-      - name: Discover and run every bounded test
+      # Every bounded test but one. tests/test_static_server.py lints the
+      # browser suites' static-server program with ruff, and these legs install
+      # whatever ruff is newest, with a deprecation warning in any child
+      # process an error (PYTHONWARNINGS above): a new ruff that flags the
+      # program, or one whose start a prerelease Python warns about, would
+      # fail a leg on a pull request that touched neither. The two CI jobs
+      # that choose their ruff, the pinned one and the lowest allowed, run
+      # that test; tests/test_workflows.py holds this line and theirs.
+      - name: Discover and run every bounded test but the lint of the static-server program
         run: >-
           python -X dev -m pytest -q
           tests
           -m "not slow"
+          --deselect tests/test_static_server.py::test_the_program_passes_the_projects_lint
           --durations=10
 
   # The check to require. A matrix job skipped before it expands never

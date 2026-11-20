@@ -70,7 +70,11 @@ requests refused and no other failure, and none of 27 from the program, with
 no request failed.
 `tests/test_static_server.py` runs the program on every Python leg of CI: it
 passes the project's lint as the Python file it would be (it is text in a
-JavaScript module, which `ruff check .` does not see), names its port in the
+JavaScript module, which `ruff check .` does not see; this one test runs on
+the two CI jobs that choose their ruff, the pinned one and the lowest allowed,
+and the forward-compatibility legs, which install whatever ruff is newest and
+make a deprecation warning in any child process an error, leave it out by its
+name, which `tests/test_workflows.py` holds), names its port in the
 line `http.server` prints, each server getting a port of its own when asked
 for port 0, answers a page, a module, a WebAssembly file, the harness's
 `HEAD`, a missing file and a file the browser already has exactly as `python
