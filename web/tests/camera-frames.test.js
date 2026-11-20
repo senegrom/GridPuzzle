@@ -266,10 +266,11 @@ test('a frame callback without a count is kept as nothing, and counted', async (
 // report. `rvfc`: the video gives frame callbacks. `counts`: the player
 // counts its frames. The paper gives twelve frames a second, as the suite's
 // does; `advance(ms, frame)` asks `frame()` for the count of each frame the
-// browser presents, or null for none.
+// browser presents, or null for none. The player's playing time runs with the
+// clock until `stopPlayingTime()`.
 function world({ rvfc = true, counts = true } = {}) {
   const FRAME = 83, timers = [], callbacks = new Map();
-  let clock = 0, ids = 0, handles = 0, nextFrame = FRAME;
+  let clock = 0, ids = 0, handles = 0, nextFrame = FRAME, playing = true;
   const now = () => clock;
   const setTimer = (run, ms) => { timers.push({ id: ++ids, at: clock + ms, run }); return ids; };
   const clearTimer = (id) => { const at = timers.findIndex((timer) => timer.id === id); if (at >= 0) timers.splice(at, 1); };
@@ -291,7 +292,7 @@ function world({ rvfc = true, counts = true } = {}) {
     querySelector: (selector) => (selector === '#video' ? video : nodes[/data-diagnostic="(\w+)"/.exec(selector)[1]]) };
   async function advance(ms, frame) {
     for (const end = clock + ms; clock < end;) {
-      clock++; video.currentTime = clock / 1000;
+      clock++; if (playing) video.currentTime = clock / 1000;
       let ran = false;
       if (clock >= nextFrame) {
         nextFrame += FRAME;
@@ -306,7 +307,7 @@ function world({ rvfc = true, counts = true } = {}) {
       if (ran) for (let turn = 0; turn < 8; turn++) await null;
     }
   }
-  return { video, scheduler, advance, callbacks, read: (run) => compiled(run, setTimer, { now })(panel) };
+  return { video, scheduler, advance, callbacks, stopPlayingTime() { playing = false; }, read: (run) => compiled(run, setTimer, { now })(panel) };
 }
 // What a case's record says: the read's own callbacks, and each of the
 // scheduler's numbers and the player's count before and after its second.
@@ -430,4 +431,71 @@ test('how the record reads: in fallback mode frames that stopped count a duplica
   assert.equal(after.duplicates[1] - after.duplicates[0], 10);
   assert.equal(after.total[0], after.total[1]);
   assert.deepEqual(after.stalled, [false, false]);
+});
+
+// Repeats and a lost callback end in a fall-back where the player's counts go
+// up, and are scanned again. Frames the guard drops are not: they stay
+// dropped in either mode (the review's two cases).
+test('how the record reads: frames the guard drops stay dropped where the player\'s counts go up, after a fall-back for a video not ready and without one for a paused video', async () => {
+  const { run } = await asked();
+  // Not ready, on a player that counts its frames: the scheduler falls back to that count, and its guard drops that too.
+  const unready = world();
+  let count = 0;
+  unready.scheduler.start(); await unready.advance(2500, () => ++count);
+  unready.video.readyState = 1; await unready.advance(2000, () => ++count);
+  const first = unready.read(run); await unready.advance(1000, () => ++count);
+  const frames = await first, dropped = told(frames);
+  assert.equal(dropped.callbacks, 12);
+  assert.deepEqual(dropped.mode, FALLBACK);
+  assert.deepEqual(dropped.fallbacks, [1, 1]);
+  assert.equal(dropped.observed[0], dropped.observed[1], 'and still nothing is scanned');
+  assert.equal(dropped.duplicates[0], dropped.duplicates[1]);
+  assert.equal(dropped.total[1] - dropped.total[0], 12, 'the player\'s count goes up all the while');
+  assert.equal(frames.before.player.ready, 1, 'the player\'s state says why');
+  // Paused: the scheduler's probe leaves a paused or ended video alone, so there is no fall-back.
+  const paused = world();
+  count = 0;
+  paused.scheduler.start(); await paused.advance(2500, () => ++count);
+  paused.video.paused = true; await paused.advance(2000, () => ++count);
+  const second = paused.read(run); await paused.advance(1000, () => ++count);
+  const held = await second, still = told(held);
+  assert.equal(still.callbacks, 12);
+  assert.deepEqual(still.mode, VIDEO_FRAME);
+  assert.deepEqual(still.fallbacks, [0, 0]);
+  assert.equal(still.observed[0], still.observed[1]);
+  assert.equal(still.duplicates[0], still.duplicates[1]);
+  assert.equal(still.total[1] - still.total[0], 12);
+  assert.deepEqual(still.stalled, [true, true]);
+  assert.equal(held.before.player.paused, true);
+});
+
+// In fallback mode the scheduler goes by the player's count of frames where
+// there is one. A player that gives none is asked its playing time, and a
+// clock that runs on over stopped frames then reads as frames observed: the
+// player's total, decoded count and time in the record say which it is.
+test('how the record reads: in fallback mode a player that gives no count of frames is asked its playing time', async () => {
+  const { run } = await asked();
+  const running = world({ rvfc: false, counts: false });
+  let count = 0;
+  running.scheduler.start(); await running.advance(2500, () => ++count); await running.advance(2000, () => null);
+  const first = running.read(run); await running.advance(1000, () => null);
+  const frames = await first, says = told(frames);
+  assert.equal(says.callbacks, null);
+  assert.deepEqual(says.mode, FALLBACK);
+  assert.equal(says.observed[1] - says.observed[0], 10, 'a frame observed each heartbeat, though none came');
+  assert.equal(says.duplicates[0], says.duplicates[1]);
+  assert.deepEqual(says.total, [null, null], 'the player gives no count');
+  assert.deepEqual([frames.before.player.decoded, frames.after.player.decoded], [null, null]);
+  assert.ok(frames.after.player.time > frames.before.player.time, 'and its clock runs on');
+  // The same with the clock standing still: duplicates, as with a count that stands still.
+  const stopped = world({ rvfc: false, counts: false });
+  count = 0;
+  stopped.scheduler.start(); await stopped.advance(2500, () => ++count);
+  stopped.stopPlayingTime(); await stopped.advance(2000, () => null);
+  const second = stopped.read(run); await stopped.advance(1000, () => null);
+  const held = await second, still = told(held);
+  assert.deepEqual(still.mode, FALLBACK);
+  assert.equal(still.observed[0], still.observed[1]);
+  assert.equal(still.duplicates[1] - still.duplicates[0], 10);
+  assert.equal(held.after.player.time, held.before.player.time);
 });

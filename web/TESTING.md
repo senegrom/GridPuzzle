@@ -730,31 +730,40 @@ the read's own in that second, with the first and the last count of frames
 presented. `view` is the panel's own word for its state.
 
 How the record reads depends on the scheduler's `mode`. In `video-frame`,
-which both engines run in on the hosted runner (their reports of run
-44076104435 say so, with no fall-back and no duplicate), the scheduler counts
-the frames that the browser's frame callbacks bring it:
+which both engines run in on the hosted runner in this suite (the probe
+below; the live-recovery and live-noise reports of run 44076104435 say the
+same of theirs, with no fall-back and no duplicate), the scheduler counts the
+frames that the browser's frame callbacks bring it:
 
 | In the second | Callbacks | `observed` | `duplicates` | The player's counts |
 | --- | --- | --- | --- | --- |
 | frames are scanned | come | goes up | stands still | go up |
 | frames stopped | none | stands still | stands still | stand still |
 | frames are taken for repeats | come | stands still | goes up with the callbacks | stand still, or are not given |
-| the scheduler's own callback is lost, or its guard drops the frames | come | stands still | stands still | stand still, or are not given |
+| the scheduler's own callback is lost | come | stands still | stands still | stand still, or are not given |
+| the scheduler's guard drops the frames | come | stands still | stands still | stand still or go up |
 
-The last two rows last only on a player whose own counts stand still or are
-not given: where they go up, the scheduler falls back to them within a second
-or so and scans again, and the record then has the mode `fallback` and one
-more in `fallbacks`. The guard drops the frames of a video that is not ready,
-paused, ended or without a size, which the player's state in the record
-says. In `fallback` (a video without frame callbacks, where `callbacks` is
-`null`, or after a fall-back) the scheduler asks the player's counts every
-tenth of a second and counts a duplicate each time they have not gone up, so
-frames that stopped show `duplicates` going up by ten a second there, with
-`observed` and the player's counts standing still. `callbackStalled` says
-only that no callback has brought a new frame for a second, in `video-frame`:
-it is true while frames are taken for repeats, though callbacks come, and
-never true in `fallback`. The scan's events say what became of the frames
-that were scanned.
+Repeats and a lost callback last only on a player whose own counts stand
+still or are not given: where they go up, the scheduler falls back to them
+within a second or so and scans again, and the record then has the mode
+`fallback` and one more in `fallbacks`. The guard drops the frames of a video
+that is not ready, paused, ended or without a size, which the player's state
+in the record says, and a callback that brings neither a count nor a media
+time. Frames it drops stay dropped in either mode: a video that is not ready
+or has no size still falls back where the counts go up, and scans nothing,
+and one that is paused or ended never falls back. In `fallback` (a video
+without frame callbacks, where `callbacks` is `null`, or after a fall-back)
+the scheduler asks the player's count of frames every tenth of a second and
+counts a duplicate each time it has not gone up, so frames that stopped show
+`duplicates` going up by ten a second there, with `observed` and the player's
+counts standing still. A player that gives no such count is asked its playing
+time instead, and a clock that runs on over stopped frames then counts as
+frames observed (`total`, `decoded` and `time` in the record say which); on
+the hosted runner both engines' players give the count. `callbackStalled`
+says only that no callback has brought a new frame for a second, in
+`video-frame`: it is true while frames are taken for repeats, though
+callbacks come, and never true in `fallback`. The scan's events say what
+became of the frames that were scanned.
 
 What the panel says where it could not prepare its report is the scan's
 `error` (its preview, which then still holds what it held, is not read), and
@@ -773,8 +782,10 @@ does where a part fails (a report that cannot be prepared, a video that gives
 no frame callbacks, a player that throws, one without playback quality or a
 stream); and with the frame scheduler itself behind the panel
 (`live-frame-scheduler.js`), one clock for the three, for each row of the
-table, for the fall-back, and for frames that stopped in `fallback` on both
-ways into it.
+table, for the fall-back, for frames the guard drops on a player whose counts
+go up (not ready, and paused), and for frames that stopped in `fallback`: on
+both ways into it, and on a player that gives no count, with its clock
+running on and standing still.
 A passing run never makes the read, so it was made once on the hosted runner,
 on a camera aiming at blank paper (a probe in run 44754099583, taken out
 again): Chromium 159 and WebKit 27.2 each gave the read's own listener 12

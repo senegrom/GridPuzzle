@@ -184,21 +184,29 @@ function phaseTimer(report,name) {
 // run in on the hosted runner: frames that stopped show no callback, and
 // frames observed, duplicates and the player's counts that all stand still.
 // Frames the scheduler takes for repeats show callbacks, and duplicates that
-// go up with them while the frames observed stand still; that lasts only on
-// a player whose own counts stand still too, since where they go up the
-// scheduler falls back to them within a second or so and scans again (mode
-// `fallback`, one more in `fallbacks`). Frames it scans show the frames
-// observed going up. Callbacks with neither count moving show a scheduler
-// whose own callback is no longer called, or whose guard drops the frames (a
-// video not ready, paused, ended or without a size: the player's state says).
+// go up with them while the frames observed stand still. Frames it scans
+// show the frames observed going up. Callbacks with neither count moving
+// show a scheduler whose own callback is no longer called, or whose guard
+// drops the frames (a video not ready, paused, ended or without a size,
+// which the player's state says, or a callback that brings neither a count
+// nor a media time). Repeats and a lost callback last only on a player whose
+// own counts stand still or are not given: where they go up, the scheduler
+// falls back to them within a second or so and scans again (mode
+// `fallback`, one more in `fallbacks`). Frames the guard drops stay dropped
+// in either mode: a video that is not ready or has no size still falls back
+// where the counts go up, and scans nothing, and one that is paused or ended
+// never falls back.
 // In mode `fallback` (a video without frame callbacks, or after a fall-back)
-// the scheduler asks the player's counts every tenth of a second and counts a
-// duplicate each time they have not gone up, so frames that stopped show
-// duplicates going up by ten a second there. `callbackStalled` says only that
-// no callback has brought a new frame for a second, in mode `video-frame`
-// (so with repeats too), and never in `fallback`. web/TESTING.md has this as
-// a table, and web/tests/camera-frames.test.js makes each case with the
-// scheduler itself.
+// the scheduler asks the player's count of frames every tenth of a second
+// and counts a duplicate each time it has not gone up, so frames that
+// stopped show duplicates going up by ten a second there. A player that
+// gives no such count is asked its playing time instead, and a clock that
+// runs on over stopped frames then counts as frames observed: the player's
+// total, decoded count and time in the record say which. `callbackStalled`
+// says only that no callback has brought a new frame for a second, in mode
+// `video-frame` (so with repeats too), and never in `fallback`.
+// web/TESTING.md has this as a table, and web/tests/camera-frames.test.js
+// makes each case with the scheduler itself.
 // What the panel says where it could not prepare its report is the scan's
 // error (its preview then still holds what it held), and the rest is read
 // all the same; a player that will not give its counts, or take the
