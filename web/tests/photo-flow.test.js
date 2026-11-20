@@ -325,10 +325,11 @@ test("a camera that is refused leaves its panel hidden, and the next opening sta
 });
 
 // The preview canvas is the page's own again from the tap that opens the
-// camera (the owner's choice, November 2026): the tap already cleared its
-// picture, and now its accessible name is the page's ("Live camera preview")
-// and the marks the session before left on it are gone (its view, overlay
-// and counts, as data attributes). The live camera sets both as it starts,
+// camera: the tap already cleared its picture, and now its accessible name
+// is the page's ("Live camera preview"; the owner's choice, November 2026)
+// and the marks the session before left on it are gone (not part of that
+// choice, and done with it: its view, its overlay and whether that is
+// delayed, and its counts, as data attributes). The live camera sets both as it starts,
 // which is only once the video plays, and until then a panel opened again
 // named its empty canvas after the last session's picture, beside the new
 // starting text. `shown` is the canvas's name and marks at each moment the

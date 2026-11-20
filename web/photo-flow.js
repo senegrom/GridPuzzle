@@ -440,11 +440,13 @@ export function setupPhotoFlow({
     const previewCanvas = $("live-preview");
     previewCanvas.getContext?.("2d")?.clearRect?.(0, 0, previewCanvas.width, previewCanvas.height);
     // The cleared canvas is the page's own again in what it says of itself
-    // too (the owner's choice, November 2026): its accessible name is the
-    // one index.html gives it, and the marks the session before left on it
-    // go with the picture they described (its view, overlay and counts, as
-    // data attributes: the suites wait on them, nothing in the app reads
-    // them, and the page gives the canvas none of its own). The live camera
+    // too. Its accessible name is the one index.html gives it (the owner's
+    // choice, November 2026). The marks the session before left on it go
+    // with the picture they described; that was not part of the choice, and
+    // came with it (its view, its overlay and whether that is delayed, and
+    // its counts, as data attributes: the suites wait on them, nothing in
+    // the app reads them, and the page gives the canvas none of its own).
+    // The live camera
     // sets both when it starts, but that is only once the video plays, and
     // until then a panel opened again named its empty canvas after the last
     // session's picture, beside the new starting text below: "Frozen picture

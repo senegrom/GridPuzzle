@@ -1696,7 +1696,8 @@ phase before, in run 43676136613). Until then a panel opened again showed the
 old line for that stretch. Nothing in the phase is timed: an observer keeps
 the line as it stands each time the page has written it. On a page whose
 camera has not been opened the phase opens it once first, up to the camera's
-aiming line, and closes it, for a line to be the old one; closed at the first
+aiming line (and on until its canvas is named after what it shows, below),
+and closes it, for a line to be the old one; closed at the first
 line that is not the starting text, as at first, that session left WebKit's
 offer of Start preview as the old line, which the reopening writes again, and
 the phase then failed on a page that was right (the review's run with a camera
@@ -1704,12 +1705,23 @@ that gives no frame until Start preview; the hosted runs never take this way
 in).
 With the line the phase reads what the preview canvas says of itself, its
 accessible name and its marks (its data attributes: the view, the overlay and
-the counts the suites wait on), as the closed panel holds it and as the tap is
-heard: since the owner's next choice of that month the tap sets the canvas
-back, and it is the page's own again from then on, named "Live camera preview"
-and with no mark, where it kept the last session's name and marks until the
-camera started. The session before must have left its marks there, or the
-phase would check nothing.
+whether that is delayed, and the counts, which the suites wait on), as the
+closed panel holds it and as the tap is heard: since the owner's next choice
+of that month the tap gives the canvas the page's own name again, "Live camera
+preview", and takes its marks away, which was not part of that choice and came
+with it, where the canvas kept the last session's name and marks until the
+camera started. The session before must have left both there, its marks and a
+name that is not the page's own, or the phase would check nothing: a live view
+without an outline is named as the page names it, and after a session closed
+in that state a tap that never set the name passed the phase (the review's run
+of the phase alone, with a tap that took the marks and left the name: the
+session the phase opens for itself was closed at the aiming line then). So
+that session is closed only once its canvas is named after what it shows (an
+outline, or more), the phase opens it also where the last session left the
+canvas the page's own name, and the phase fails where the closed panel's
+canvas has that name all the same. In Chromium on the hosted runner the phase
+before closed with an outline shown (run 44748493194: "Live camera. Grid
+outline shown; reading: …").
 The phase ends by loading the page afresh with its camera fixture. Its
 session may have read and frozen by the time it is closed, and until the tap
 set the canvas back, the canvas kept a session's "frozen" mark and counts

@@ -840,8 +840,11 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   // that fails to construct never holds it.
   if (solverWorker) solver.adopt ? solver.adopt(solverWorker) : solverWorker.terminate();
   return {
-    // The canvas may still carry a frozen or captured picture's state and
-    // label from the session before (closed, or saved and scanned again).
+    // The page has set the canvas back by now, in the tap that opened the
+    // camera (photo-flow.js openCamera(): the page's own name, no mark);
+    // until it did, the canvas still carried a frozen or captured picture's
+    // state and label from the session before here (closed, or saved and
+    // scanned again). The session's own are written all the same.
     start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", PREVIEW_NAME); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
     stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); dropScanned(); diagnostics?.overlay?.(null); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
     get view() { return view; },

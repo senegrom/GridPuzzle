@@ -65,12 +65,17 @@ test('the phase knows the camera\'s aiming line, whichever of the three, from ev
 });
 
 // A page that answers the phase's reads. `helps` are the help line's texts
-// as the phase reads them one after the other (the last one stays), `seen`
-// what its listener and observer kept. Its calls are noted in order.
-function standIn({ helps = [OLD], seen }) {
-  const calls = [], left = [...helps];
+// as the phase reads them one after the other (the last one stays), `names`
+// the preview canvas's name as it reads that, `seen` what its listener and
+// observer kept. Its calls are noted in order.
+function standIn({ helps = [OLD], names = [SESSION.name], seen }) {
+  const calls = [], left = [...helps], named = [...names];
   return {
     calls,
+    async getAttribute(selector, name) {
+      calls.push({ kind: 'getAttribute', selector, name });
+      return named.length > 1 ? named.shift() : named[0];
+    },
     async evaluate(run, argument) {
       const text = String(run).replace(/\s+/g, '');
       calls.push({ kind: 'evaluate', run, source: text, argument });
@@ -93,16 +98,21 @@ const played = async (answers) => {
   const error = await camera.openedAgain(page, report, BASE).then(() => undefined, (failure) => failure);
   return { page, report, error };
 };
-// The phase's wait for the aiming line, as the page is asked.
+// The phase's wait for the aiming line, as the page is asked, and its wait
+// for the canvas of a session of its own to be named after what it shows.
 const AIMED = '()=>openedAgain.aimed===true';
+const NAMED = 'own=>document.getElementById("live-preview").getAttribute("aria-label")!==own';
 // What the phase did, in order, in a few words a call.
 const steps = (page) => page.calls.map((call) => (call.kind === 'click' ? `click ${call.selector}`
   : call.kind === 'textContent' ? 'read the help line'
+    : call.kind === 'getAttribute' && call.selector === '#live-preview' && call.name === 'aria-label' ? 'read the canvas\'s name'
+      : call.kind === 'getAttribute' ? `another attribute: ${call.selector} ${call.name}`
     : call.kind === 'evaluate' && call.run === camera.watchOpening ? 'watch'
       : call.kind === 'evaluate' && call.source === '()=>window.openedAgain' ? 'read what was kept'
         : call.kind === 'evaluate' && call.source.includes('navigator.mediaDevices') ? 'camera fixture'
           : call.kind === 'evaluate' && call.source === '()=>{window.liveMode="grid";}' ? 'the paper shows its grid'
             : call.kind === 'waitForFunction' && call.source === AIMED ? 'wait for the aiming line'
+              : call.kind === 'waitForFunction' && call.source === NAMED ? 'wait for the canvas\'s own name to go'
               // startLive()'s own wait, for the video or the offer of Start preview, is part of the tap; any other wait is told.
               : call.kind === 'waitForFunction' && call.source.includes('!start.hidden||video.videoWidth>0') ? null
                 : call.kind === 'waitForFunction' ? `another wait: ${call.source}`
@@ -118,6 +128,12 @@ const REOPENED = ['watch', 'click #camera', 'wait for the aiming line', 'read wh
 const waits = (page) => page.calls.filter((call) => call.kind === 'waitForFunction' && call.source === AIMED)
   .map(({ argument, options }) => ({ argument, options }));
 const LONG = { argument: null, options: { timeout: 150000 } };
+// Its wait for the canvas's own name to go has the same limit, and is told that name.
+const nameWaits = (page) => page.calls.filter((call) => call.kind === 'waitForFunction' && call.source === NAMED)
+  .map(({ argument, options }) => ({ argument, options }));
+const LONG_NAMED = { argument: PREVIEW_NAME, options: { timeout: 150000 } };
+// A session of the phase's own, before the reopening.
+const OWN_SESSION = ['watch', 'click #camera', 'wait for the aiming line', 'wait for the canvas\'s own name to go', 'click #close-camera'];
 
 test('the phase passes where the tap sets the starting text and the camera\'s aiming line follows it, on the line the phase before left', async () => {
   const { page, report, error } = await played({ seen: NEW });
@@ -125,32 +141,60 @@ test('the phase passes where the tap sets the starting text and the camera\'s ai
   assert.deepEqual(report.checks, [CHECK]);
   assert.deepEqual(report.openedAgain, { old: OLD, ...NEW });
   // The paper shows its grid, whatever the phase before left it showing. The
-  // panel holds another session's line already: that is the old line, read
-  // twice (is there one? which?). Then the listener and the observer, the
-  // tap, the wait for the aiming line, the read, the camera closed, and the
-  // page loaded afresh with its camera fixture: the phases after this one
-  // start on a page that has had no camera session.
-  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', 'read the help line', ...REOPENED]);
+  // panel holds another session's line already, and its canvas that
+  // session's name: the line is the old line, read twice (is there one?
+  // which?). Then the listener and the observer, the tap, the wait for the
+  // aiming line, the read, the camera closed, and the page loaded afresh with
+  // its camera fixture: the phases after this one start on a page that has
+  // had no camera session.
+  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', 'read the canvas\'s name', 'read the help line', ...REOPENED]);
   assert.deepEqual(waits(page), [LONG]);
+  assert.deepEqual(nameWaits(page), [], 'no session of its own, and no wait for a name');
   const watch = page.calls.find((call) => call.run === camera.watchOpening);
   assert.equal(watch.argument, camera.AIMING_LINE, 'the observer is told the aiming line, at which it stops');
 });
 
 // That session of its own is watched as the reopening is, up to the camera's
-// aiming line, and closed only then. Closed at the first line that is not the
-// starting text, as it was at first, it left WebKit's "No camera frame
+// aiming line, and closed only after it. Closed at the first line that is not
+// the starting text, as it was at first, it left WebKit's "No camera frame
 // arrived. Tap Start preview to retry." as the old line, which the reopening
 // writes again before its aiming line: the phase then failed on a page that
 // was right (the review's run with a camera that gives no frame until Start
-// preview).
-test('on a page whose camera has not been opened the phase opens it once first, up to the aiming line, and closes it, for a line to be the old one', async () => {
+// preview). Closed at the aiming line, as it was next, it left the canvas the
+// page's own name, a live view without an outline being named so, and a tap
+// that never set the name passed the phase (the review's run with a tap that
+// took the marks alone). So it is closed once the canvas's name is no longer
+// the page's own: an outline is shown then, or more.
+test('on a page whose camera has not been opened the phase opens it once first, up to the aiming line and until its canvas is named after what it shows, and closes it', async () => {
   const { page, report, error } = await played({ helps: [CAMERA_START_HELP, AIMING], seen: NEW });
   assert.equal(error, undefined);
   assert.deepEqual(report.openedAgain, { old: AIMING, ...NEW });
-  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', 'watch', 'click #camera', 'wait for the aiming line',
-    'click #close-camera', 'read the help line', ...REOPENED]);
+  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', ...OWN_SESSION, 'read the help line', ...REOPENED]);
   assert.deepEqual(waits(page), [LONG, LONG]);
+  assert.deepEqual(nameWaits(page), [LONG_NAMED]);
   for (const watch of page.calls.filter((call) => call.run === camera.watchOpening)) assert.equal(watch.argument, camera.AIMING_LINE);
+});
+
+// The session before may have been closed with a canvas that the page's own
+// name still stood on (a live view with no outline is named so). Its marks
+// say that a session was there, but the name at the tap would then be right
+// on a page that never set it: the phase opens a session of its own there
+// too, for a name to be the old one.
+test('where the last session left the canvas the page\'s own name, the phase opens one of its own all the same, for a name to be the old one', async () => {
+  const { page, report, error } = await played({ helps: [OLD, AIMING], names: [PREVIEW_NAME], seen: NEW });
+  assert.equal(error, undefined);
+  assert.deepEqual(report.checks, [CHECK]);
+  assert.deepEqual(report.openedAgain, { old: AIMING, ...NEW });
+  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', 'read the canvas\'s name', ...OWN_SESSION,
+    'read the help line', ...REOPENED]);
+  assert.deepEqual(waits(page), [LONG, LONG]);
+  assert.deepEqual(nameWaits(page), [LONG_NAMED]);
+});
+
+test('a canvas with no name at all is not the page\'s own: the phase opens no session for it', async () => {
+  const { page, error } = await played({ names: [null], seen: { ...NEW, canvas: { closed: { name: null, marks: MARKS }, tap: OWN } } });
+  assert.equal(error, undefined);
+  assert.deepEqual(steps(page), ['the paper shows its grid', 'read the help line', 'read the canvas\'s name', 'read the help line', ...REOPENED]);
 });
 
 test('with WebKit\'s offer of Start preview before both aiming lines, the session of its own leaves a line the reopening does not write again', async () => {
@@ -166,11 +210,15 @@ test('with WebKit\'s offer of Start preview before both aiming lines, the sessio
 // The canvas's failures come last here, each on a page whose help line is
 // right: the canvas as the page left it at the tap until this change (the
 // last session's name and marks), with its own name and a mark left, with no
-// mark and another picture's name, and with nothing of a session on it before
-// the tap, where the phase would check nothing of the marks.
+// mark and another picture's name; and with not enough of a session on it
+// before the tap: no mark, where the phase would check nothing of the marks,
+// or the page's own name, where it would check nothing of the name (the
+// phase opens a session of its own where it reads that name on the closed
+// canvas, so this is a canvas that lost its name between that read and the
+// tap).
 const LINE = /^the tap that opens the camera again sets the panel's starting text/, AGAIN = /^the old line is not written again before the camera's own first line/,
   PREMISE = /^the closed panel holds the last line of the session before/, CANVAS = /^the tap sets the preview canvas back/,
-  CANVAS_PREMISE = /^the closed panel's canvas holds the marks of the session before/;
+  CANVAS_PREMISE = /^the closed panel's canvas holds the marks of the session before, and a name that is not the page's own/;
 for (const [what, answers, message] of [
   ['the panel still shows the old line at the tap, as it did until November 2026', { seen: kept({ tap: OLD, lines: [AIMING] }) }, LINE],
   ['the line at the tap is neither the old one nor the starting text', { seen: kept({ tap: AIMING, lines: [AIMING] }) }, LINE],
@@ -192,8 +240,12 @@ for (const [what, answers, message] of [
   ['the canvas has no mark at the tap, and still the last picture\'s name',
     { seen: { ...NEW, canvas: { closed: FROZEN_CANVAS, tap: { name: FROZEN_CANVAS.name, marks: [] } } } }, CANVAS],
   ['the canvas has no name at all at the tap', { seen: { ...NEW, canvas: { closed: SESSION, tap: { name: null, marks: [] } } } }, CANVAS],
-  ['the closed panel\'s canvas holds no mark of a session, so that the phase would check nothing of the marks',
+  ['the closed panel\'s canvas holds nothing of a session, so that the phase would check nothing',
     { seen: { ...NEW, canvas: { closed: OWN, tap: OWN } } }, CANVAS_PREMISE],
+  ['the closed panel\'s canvas holds a session\'s name and no mark, so that the phase would check nothing of the marks',
+    { seen: { ...NEW, canvas: { closed: { name: SESSION.name, marks: [] }, tap: OWN } } }, CANVAS_PREMISE],
+  ['the closed panel\'s canvas holds a session\'s marks under the page\'s own name, so that the phase would check nothing of the name',
+    { seen: { ...NEW, canvas: { closed: { name: PREVIEW_NAME, marks: MARKS }, tap: OWN } } }, CANVAS_PREMISE],
 ]) test(`the phase fails where ${what}`, async () => {
   const { report, error } = await played(answers);
   assert.equal(error?.name, 'AssertionError');
@@ -206,16 +258,6 @@ test('a page in WebKit, which offers Start preview before the camera\'s first li
   const { report, error } = await played({ seen });
   assert.equal(error, undefined);
   assert.deepEqual(report.openedAgain.lines, seen.lines);
-});
-
-// The session before may have closed with a name that is the page's own (a
-// live view with no outline is named so): the marks alone then say that a
-// session was there, and the phase passes.
-test('the phase passes where the session before left the canvas its own name, and its marks', async () => {
-  const seen = { ...NEW, canvas: { closed: { name: PREVIEW_NAME, marks: MARKS }, tap: OWN } };
-  const { report, error } = await played({ seen });
-  assert.equal(error, undefined);
-  assert.deepEqual(report.openedAgain.canvas, seen.canvas);
 });
 
 // watchOpening() runs in the page. Here it runs on a stand-in for a page's
