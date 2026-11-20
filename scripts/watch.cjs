@@ -117,7 +117,10 @@ async function cleanUp(name, action, limit, { signal, shortLimit } = {}) {
 // browser_smoke gives its own page, so that in live_camera,
 // browser_regressions, scanner_repair and browser_smoke a page that answers
 // such calls in time answers these too, but for that last tenth of a
-// second, and the reads add less to a failed run than one such call can.
+// second (and but for live_camera's read of the camera's frames, which
+// takes a second by itself: a page that reaches it only in the limit's last
+// second has it cut short), and the reads add less to a failed run than one
+// such call can.
 // live_motion, live_noise, live_recovery and external_replay ask engines()
 // for 60 seconds, and solver_update keeps Playwright's own 30: there the
 // limit cuts short a read that would have answered later, and is the only

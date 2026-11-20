@@ -183,15 +183,22 @@ const ASKED = {
   storageStatus: 'textContent #capture-storage-status', paintCount: 'evaluate ()=>window.livePaintCount',
   visibility: 'evaluate ()=>document.visibilityState', cameraCalls: 'evaluate ()=>window.liveGetUserMediaCalls',
   video: 'locator #video evaluate', statusDetail: 'textContent #status-detail', cameraHelp: 'textContent #camera-help',
+  frames: 'locator #camera-panel evaluate',
 };
 // What a page answers them with, and what the catch keeps when a read fails:
-// the fallbacks it has always had.
+// the fallbacks it has always had. The last read, the camera's frames over a
+// second, came in November 2026 (web/tests/camera-frames.test.js runs what
+// it asks the page): its answer here is the kind it gives, cut down.
 const ANSWERS = {
   storageStatus: 'Picture saved in this browser.', paintCount: 17, visibility: 'visible', cameraCalls: undefined,
   video: { muted: true, paused: false, width: 700, ready: 4, inline: true, tracks: [{ kind: 'video', ready: 'live' }] },
   statusDetail: 'Detected 4 × 4.', cameraHelp: 'Hold the grid steady.',
+  frames: { view: 'live', before: { scan: { stage: 'tracking', scheduling: { observed: 40, duplicates: 0 } }, player: { total: 52 } },
+    callbacks: { count: 12, first: 53, last: 64 }, milliseconds: 1004,
+    after: { scan: { stage: 'tracking', scheduling: { observed: 52, duplicates: 0 } }, player: { total: 64 } } },
 };
-const FALLBACKS = { storageStatus: '', paintCount: null, visibility: null, cameraCalls: null, video: null, statusDetail: '', cameraHelp: '' };
+const FALLBACKS = { storageStatus: '', paintCount: null, visibility: null, cameraCalls: null, video: null, statusDetail: '', cameraHelp: '',
+  frames: null };
 const CUT_SHORT = (...names) => names.map((name) => `${name}: no answer within ${READ_LIMIT / 1000} s`);
 
 // A page for readAfterFailure() that answers each read as `how(name)` says:
@@ -213,7 +220,8 @@ function standInPage(how) {
     asked,
     textContent: (selector) => read(`textContent ${selector}`, () => ANSWERS[names[`textContent ${selector}`]]),
     evaluate: (fn) => read(`evaluate ${String(fn).replace(/\s+/g, '')}`, () => ANSWERS[names[`evaluate ${String(fn).replace(/\s+/g, '')}`]]),
-    locator: (selector) => ({ evaluate: (fn) => read(`locator ${selector} evaluate`, () => fn(video)) }),
+    locator: (selector) => ({ evaluate: (fn) => read(`locator ${selector} evaluate`,
+      () => (selector === '#video' ? fn(video) : ANSWERS[names[`locator ${selector} evaluate`]])) }),
   };
 }
 
@@ -371,7 +379,7 @@ describe('live_camera, run as it is, reads its page after its failure and then f
     ['no read answers', { READS: { '*': 'never' } }, FALLBACKS, CUT_SHORT(...READ_NAMES)],
     // As in the WebKit hang: the reads that Playwright gives the page's
     // default timeout are still waiting when the limit ends, page.evaluate()
-    // never answers, and the browser will not close; all seven are cut short.
+    // never answers, and the browser will not close; all eight are cut short.
     ['the reads with the page\'s timeout run out of it after the limit, page.evaluate() never answers and the browser will not close',
       { READS: { paintCount: 'never', visibility: 'never', cameraCalls: 'never', '*': 'times out' }, BROWSER_HANGS: true },
       FALLBACKS, CUT_SHORT(...READ_NAMES), ['browser: browser cleanup timed out']],

@@ -746,7 +746,7 @@ describe('live_camera\'s reads after a failure keep the names of a clean-up cut 
   const page = (never) => ({ textContent: () => (never ? new Promise(() => {}) : Promise.resolve('')),
     evaluate: () => (never ? new Promise(() => {}) : Promise.resolve(null)),
     locator: () => ({ evaluate: () => (never ? new Promise(() => {}) : Promise.resolve(null)) }) });
-  const READS = ['storageStatus', 'paintCount', 'visibility', 'cameraCalls', 'video', 'statusDetail', 'cameraHelp'];
+  const READS = ['storageStatus', 'paintCount', 'visibility', 'cameraCalls', 'video', 'statusDetail', 'cameraHelp', 'frames'];
 
   test('reads that answer leave the clean-up\'s name alone in the list', async () => {
     const report = { readsCutShort: [CUT_SHORT('viewport after 320 px')] };
@@ -799,10 +799,13 @@ const ASKED = {
   storageStatus: 'textContent #capture-storage-status', paintCount: 'evaluate ()=>window.livePaintCount',
   visibility: 'evaluate ()=>document.visibilityState', cameraCalls: 'evaluate ()=>window.liveGetUserMediaCalls',
   video: 'locator #video evaluate', statusDetail: 'textContent #status-detail', cameraHelp: 'textContent #camera-help',
+  frames: 'locator #camera-panel evaluate',
 };
 const ANSWERS = { storageStatus: 'Picture saved in this browser.', paintCount: 17, visibility: 'visible', cameraCalls: 3,
-  video: { muted: true, paused: false, width: 700 }, statusDetail: 'Detected 4 × 4.', cameraHelp: 'Hold the grid steady.' };
-const FALLBACKS = { storageStatus: '', paintCount: null, visibility: null, cameraCalls: null, video: null, statusDetail: '', cameraHelp: '' };
+  video: { muted: true, paused: false, width: 700 }, statusDetail: 'Detected 4 × 4.', cameraHelp: 'Hold the grid steady.',
+  frames: { view: 'live', callbacks: { count: 12, first: 53, last: 64 }, milliseconds: 1004 } };
+const FALLBACKS = { storageStatus: '', paintCount: null, visibility: null, cameraCalls: null, video: null, statusDetail: '', cameraHelp: '',
+  frames: null };
 
 // Playwright for live_camera: each engine's page plays the suite's first
 // step, "viewfinder layers", which passes, or with STEP_FAILS fails at its
