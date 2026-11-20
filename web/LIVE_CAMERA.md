@@ -276,7 +276,16 @@ and while the panel is still hidden, and the camera writes its first line
 once the video plays (the owner's choice of November 2026; until then nothing
 set the line back, and a panel opened again showed the last line of the
 session before meanwhile: "Solution preview — frozen. …" after a freeze, also
-with Editing set to Play since, or the shutter's line after Retake). The
+with Editing set to Play since, or the shutter's line after Retake). The same
+tap sets the preview canvas back, whose picture it clears: its accessible
+name is the page's own again, "Live camera preview", and the marks the session
+before left on it are gone (the owner's next choice of that month; until then
+the empty canvas kept the last picture's name beside the starting text until
+the camera started: "Frozen picture of the solved puzzle: …" after a freeze,
+"Saved picture …" after Retake). The marks are the canvas's data attributes,
+its view, overlay and counts, which the suites wait on and nothing in the app
+reads; the page gives the canvas none of its own, and the tap takes away
+whatever is there. The
 diagnostics record Play beside automatic solving, as `settings.playing`.
 
 While the freeze waits, no solution is shown and the help line says "Solution

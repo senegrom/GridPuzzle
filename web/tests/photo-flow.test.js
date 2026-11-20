@@ -105,6 +105,8 @@ async function cameraHarness(t, { capture = null, play = async () => {}, freshSt
       const context = { draws: [], clearRect() {}, drawImage(source) { this.draws.push(source); } };
       nodes.set(id, { hidden: true, disabled: false, textContent: "", style: {}, attributes: {},
         setAttribute(name, value) { this.attributes[name] = value; },
+        removeAttribute(name) { delete this.attributes[name]; },
+        getAttributeNames() { return Object.keys(this.attributes); },
         focus() { this.focused = (this.focused || 0) + 1; }, getContext: () => context });
     }
     return nodes.get(id);
@@ -320,6 +322,94 @@ test("a camera that is refused leaves its panel hidden, and the next opening sta
   await h.$("camera").onclick();
   assert.equal(h.$("camera-panel").hidden, false);
   assert.equal(help.textContent, CAMERA_START_HELP);
+});
+
+// The preview canvas is the page's own again from the tap that opens the
+// camera (the owner's choice, November 2026): the tap already cleared its
+// picture, and now its accessible name is the page's ("Live camera preview")
+// and the marks the session before left on it are gone (its view, overlay
+// and counts, as data attributes). The live camera sets both as it starts,
+// which is only once the video plays, and until then a panel opened again
+// named its empty canvas after the last session's picture, beside the new
+// starting text. `shown` is the canvas's name and marks at each moment the
+// panel is shown, so what was there for that moment is in it. What is no
+// mark stays: the canvas's role.
+const FROZEN_NAME = "Frozen picture of the solved puzzle: 14 recognised, 0 uncertain, 0 unread, 2 solution entries. Live results are not confirmed.";
+// What a session that froze leaves on the canvas (live-camera.js).
+const FROZEN_MARKS = { "data-view": "frozen", "data-overlay": "composition", "data-delayed": "0", "data-recognised": "14",
+  "data-uncertain": "0", "data-unknown": "0", "data-solution": "2" };
+const marks = (canvas) => canvas.getAttributeNames().filter((name) => name.startsWith("data-")).sort();
+// Whatever Editing is set to and whether automatic solving is ticked: the
+// canvas is set back by the tap, not by what the camera will do.
+for (const [settings, tool, solve] of [["as the page is installed", "value", true], ["with Editing set to Play", "play", true],
+  ["with automatic solving unticked", "value", false]])
+test(`the preview canvas is the page's own again at every opening: its name, and none of the marks the session before left, ${settings}`, async (t) => {
+  const { PREVIEW_NAME } = await import("../live-camera.js");
+  const h = await cameraHarness(t, { capture: stillPicture() }), canvas = h.$("live-preview"), panel = h.$("camera-panel"), shown = [];
+  h.$("edit-tool").value = tool; h.$("auto-solve").checked = solve;
+  canvas.setAttribute("role", "img"); canvas.setAttribute("aria-label", PREVIEW_NAME); // As index.html has it.
+  let hidden = panel.hidden;
+  Object.defineProperty(panel, "hidden", { get: () => hidden,
+    set(value) { hidden = value; if (!value) shown.push({ name: canvas.attributes["aria-label"], marks: marks(canvas) }); } });
+  const OWN = { name: PREVIEW_NAME, marks: [] };
+  const opens = async (button, when) => {
+    const before = shown.length;
+    await h.$(button).onclick();
+    assert.deepEqual({ name: canvas.attributes["aria-label"], marks: marks(canvas) }, OWN, when);
+    assert.deepEqual(shown.slice(before), [OWN], `the panel is shown once, with that canvas (${when})`);
+    assert.equal(canvas.attributes.role, "img", "what is no mark stays");
+  };
+  await opens("camera", "at the first opening");
+  canvas.setAttribute("aria-label", FROZEN_NAME); // The camera's own, at a freeze.
+  for (const [name, value] of Object.entries(FROZEN_MARKS)) canvas.setAttribute(name, value);
+  h.$("close-camera").onclick();
+  assert.deepEqual({ name: canvas.attributes["aria-label"], marks: marks(canvas) },
+    { name: FROZEN_NAME, marks: Object.keys(FROZEN_MARKS).sort() }, "a closed panel's canvas keeps its last picture's name and marks");
+  await opens("camera", "opened again after a session that froze");
+  // The shutter's picture, by the page's own code: its name and its marks.
+  await h.$("take-photo").onclick(); await tick();
+  assert.equal(canvas.attributes["aria-label"], "Saved picture without a reading. Crop and read it in the editor.");
+  assert.deepEqual(marks(canvas), ["data-delayed", "data-overlay", "data-recognised", "data-solution", "data-uncertain", "data-unknown", "data-view"]);
+  assert.equal(canvas.attributes["data-view"], "captured");
+  await opens("retake-photo", "after Retake");
+  assert.equal(h.liveStarted, 3);
+});
+
+// As the starting text is: in the tap, before the browser is asked for the
+// camera, with the panel hidden, so that the old name is never beside the
+// new session's first line, however long the prompt or the camera takes.
+test("the preview canvas is set back in the tap that opens the camera, with the panel hidden, before the browser answers", async (t) => {
+  const { PREVIEW_NAME } = await import("../live-camera.js");
+  const h = await cameraHarness(t), canvas = h.$("live-preview");
+  await h.$("camera").onclick();
+  canvas.setAttribute("aria-label", FROZEN_NAME);
+  for (const [name, value] of Object.entries(FROZEN_MARKS)) canvas.setAttribute(name, value);
+  assert.equal(h.$("camera-panel").hidden, false);
+  const asked = h.holdRequests(), opening = h.$("camera").onclick();
+  assert.deepEqual({ name: canvas.attributes["aria-label"], marks: marks(canvas) }, { name: PREVIEW_NAME, marks: [] }, "as the tap's handler returns");
+  assert.equal(h.$("camera-panel").hidden, true, "with the panel hidden");
+  assert.equal(h.requests, 2, "and the browser asked for the camera, which has not answered");
+  asked.resolve(); await opening;
+  assert.equal(h.$("camera-panel").hidden, false);
+  assert.deepEqual({ name: canvas.attributes["aria-label"], marks: marks(canvas) }, { name: PREVIEW_NAME, marks: [] }, "the canvas the panel shows with");
+});
+
+// A camera that cannot open leaves the panel hidden, with a canvas that is
+// set back all the same: the tap cleared its picture before the browser said
+// no, so the old picture's name described nothing any more.
+test("a camera that is refused leaves its panel hidden with the canvas set back, and the next opening sets it back again", async (t) => {
+  const { PREVIEW_NAME } = await import("../live-camera.js");
+  const h = await cameraHarness(t), canvas = h.$("live-preview");
+  canvas.setAttribute("aria-label", FROZEN_NAME); canvas.setAttribute("data-view", "frozen");
+  h.refuse(new DOMException("Denied", "NotAllowedError"));
+  await h.$("camera").onclick();
+  assert.equal(h.$("camera-panel").hidden, true);
+  assert.deepEqual({ name: canvas.attributes["aria-label"], marks: marks(canvas) }, { name: PREVIEW_NAME, marks: [] });
+  canvas.setAttribute("aria-label", "anything"); canvas.setAttribute("data-anything", "1");
+  h.refuse(null);
+  await h.$("camera").onclick();
+  assert.equal(h.$("camera-panel").hidden, false);
+  assert.deepEqual({ name: canvas.attributes["aria-label"], marks: marks(canvas) }, { name: PREVIEW_NAME, marks: [] });
 });
 
 // A page hidden releases the camera, and the status must not go on speaking

@@ -458,18 +458,32 @@ async function pageLyingSideways(page,report) {
 // run of its own. The starting text is the first of the lines and the old
 // line is none of them. Nothing here is timed. The listener hears one tap and
 // the observer stops at the aiming line.
-// The page is then loaded afresh with its camera fixture. The new session may
-// have read and frozen by the time it is closed, and the preview canvas keeps
-// a session's "frozen" mark and counts until the next session draws: the wait
-// for a freeze in the phase after this one would pass on such a mark at once,
-// as it did in WebKit on the hosted runner when this phase still left one.
+// The preview canvas is read with the line, since the owner's next choice of
+// that month: what it says of itself, its accessible name and its marks (its
+// data attributes), as the closed panel holds it and as the tap is heard. A
+// session leaves its marks on it, and its picture's name. From the tap on it
+// is the page's own again: named "Live camera preview" (live-camera.js
+// PREVIEW_NAME), with no mark. Before that it kept both until the camera
+// started, beside the new starting text.
+// The page is then loaded afresh with its camera fixture, as since the phase
+// came. Its session may have read and frozen by the time it is closed, and
+// the canvas then kept that session's "frozen" mark and counts until the next
+// session drew: the wait for a freeze in the phase after this one passed on
+// such a mark at once, in WebKit on the hosted runner. The next opening's tap
+// takes the marks away now, so no wait passes on an old one any more; the
+// page is loaded afresh all the same, and the phases after this one start on
+// a page that has had no camera session.
 const CAMERA_START_HELP="Hold the whole grid steady. Recognition appears here.";
-// What the phase leaves in the page to hear the tap and keep the lines.
+const CAMERA_PREVIEW_NAME="Live camera preview";
+// What the phase leaves in the page to hear the tap and keep the lines, and
+// what the canvas says of itself then and as this is left there.
 // `aiming` is the source of a pattern for the camera's own first line. It
 // runs in the page: web/tests/camera-opened-again.test.js runs it on a
 // stand-in for one.
 function watchOpening(aiming) {
-  const help=document.getElementById("camera-help"),seen=window.openedAgain={tap:null,lines:[],aimed:false};
+  const help=document.getElementById("camera-help"),preview=document.getElementById("live-preview");
+  const says=()=>({name:preview.getAttribute("aria-label"),marks:preview.getAttributeNames().filter(name=>name.startsWith("data-")).sort()});
+  const seen=window.openedAgain={tap:null,canvas:{closed:says(),tap:null},lines:[],aimed:false};
   const watch=new MutationObserver(()=>{
     seen.lines.push(help.textContent);
     if(new RegExp(aiming).test(help.textContent)){seen.aimed=true;watch.disconnect();}
@@ -477,7 +491,7 @@ function watchOpening(aiming) {
   watch.observe(help,{childList:true,characterData:true,subtree:true});
   document.addEventListener("click",function heard(event){
     if(!event.target?.closest?.("#camera"))return;
-    seen.tap=help.textContent;document.removeEventListener("click",heard);
+    seen.tap=help.textContent;seen.canvas.tap=says();document.removeEventListener("click",heard);
   });
 }
 // The camera's aiming line, whichever of its three (live-camera.js aiming()).
@@ -501,9 +515,11 @@ async function openedAgain(page,report,base) {
   assert.equal(opened.lines[0],CAMERA_START_HELP,"and it is the first line written from that tap on");
   // The last line kept is the camera's aiming line, which is the old line too where the session before left no other.
   assert.ok(!opened.lines.slice(0,-1).includes(old),`the old line is not written again before the camera's own first line (${JSON.stringify(opened.lines)})`);
+  assert.ok(opened.canvas.closed.marks.length>0,`the closed panel's canvas holds the marks of the session before (${JSON.stringify(opened.canvas.closed)})`);
+  assert.deepEqual(opened.canvas.tap,{name:CAMERA_PREVIEW_NAME,marks:[]},"the tap sets the preview canvas back: the page's own name, and none of the marks of the session before");
   await page.click("#close-camera");
   await idlePage(page,base);await fixture(page);
-  report.checks.push("a camera opened again starts with the panel's starting text: the tap sets it, it is the first line written from the tap on, and the line of the session before is not written again before the camera's own first line");
+  report.checks.push("a camera opened again starts with the panel's starting text: the tap sets it, it is the first line written from the tap on, and the line of the session before is not written again before the camera's own first line; and the tap sets the preview canvas back, to the page's own name and no mark of the session before");
 }
 async function run() {
   const server=await serve();
@@ -924,5 +940,5 @@ async function run() {
   } finally{server.close();}
 }
 module.exports = { run, readAfterFailure, stepThenPutBack, layersAtEachScreen, narrowScreen, captureWithoutAutoSolve, readsOnlyInPlay,
-  pageLyingSideways, openedAgain, watchOpening, CAMERA_START_HELP, AIMING_LINE };
+  pageLyingSideways, openedAgain, watchOpening, CAMERA_START_HELP, CAMERA_PREVIEW_NAME, AIMING_LINE };
 main(module,run);

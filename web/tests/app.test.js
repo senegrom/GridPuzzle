@@ -6,6 +6,7 @@ import test from "node:test";
 import vm from "node:vm";
 import * as model from "../model.js";
 import { CAMERA_START_HELP } from "../photo-flow.js";
+import { PREVIEW_NAME } from "../live-camera.js";
 
 const read = (name) =>
   fs.readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
@@ -57,6 +58,19 @@ test("the camera panel's starting text promises no solution, in the page and in 
   const help = read("index.html").match(/<p id="camera-help"[^>]*>([^<]*)<\/p>/)?.[1];
   assert.equal(help, "Hold the whole grid steady. Recognition appears here.");
   assert.equal(CAMERA_START_HELP, help);
+});
+
+// The preview canvas as the page has it before any session: named "Live
+// camera preview", with no data attribute. The tap that opens the camera sets
+// it back to exactly that (photo-flow.js openCamera, since November 2026), by
+// the live camera's own word for an empty canvas (PREVIEW_NAME) and by taking
+// every data attribute away: one the page gave the canvas itself would go at
+// the first opening.
+test("the preview canvas has its own name in the page and no data attribute, which is what each opening sets it back to", () => {
+  const canvas = read("index.html").match(/<canvas id="live-preview"[^>]*>/)?.[0];
+  assert.equal(canvas, '<canvas id="live-preview" role="img" aria-label="Live camera preview">');
+  assert.equal(canvas.match(/aria-label="([^"]*)"/)[1], PREVIEW_NAME);
+  assert.doesNotMatch(canvas, /\sdata-/);
 });
 
 // "Wait up to 3 s for clearer clues before freezing" sits right after the

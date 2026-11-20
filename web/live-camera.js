@@ -51,6 +51,11 @@ const REFINE_WAIT = 3000;
 const LATE_LIMIT = 3;
 const TOO_SLOW_HELP = "This grid takes too long to track live on this device. Save a picture to read it in the editor.";
 const COUNTED = ["recognised", "uncertain", "unknown", "solution"];
+// The canvas's accessible name while it shows nothing: before any session
+// (index.html has the same words; app.test.js holds the two together), from
+// the tap that opens the camera until the camera starts (photo-flow.js
+// openCamera), and while the live view has no outline.
+export const PREVIEW_NAME = "Live camera preview";
 const frozenLabel = (counts) => `Frozen picture of the solved puzzle: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread, ${counts.solution} solution entries. Live results are not confirmed.`;
 
 export function createLiveCamera({ $, video, canvas, getSettings,
@@ -363,7 +368,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
     return scale > 0 && Number.isFinite(scale) ? { line: LIVE_LINE / scale, halo: LIVE_HALO / scale } : {};
   }
   function liveLabel(mode, delayed, counts) {
-    if (mode === "none") return "Live camera preview";
+    if (mode === "none") return PREVIEW_NAME;
     const reading = displayed ? `; reading: ${counts.recognised} recognised, ${counts.uncertain} uncertain, ${counts.unknown} unread clues` : "";
     return `Live camera. Grid outline shown${reading}.${delayed ? " The overlay is catching up with the camera." : ""}`;
   }
@@ -837,7 +842,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
   return {
     // The canvas may still carry a frozen or captured picture's state and
     // label from the session before (closed, or saved and scanned again).
-    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", "Live camera preview"); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
+    start() { if (active) return; active = true; epoch++; lastDetect = trackAfter = ownVerifiedAt = -Infinity; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = now(); canvas.setAttribute?.("data-view", "live"); canvas.setAttribute?.("aria-label", PREVIEW_NAME); countCells(null, null); canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0"; session.start(); recovery.reset(); solverPrepared = false; reader.prepare?.(); prepareSolver(); say(aiming()); scheduler.start(); },
     stop() { active = false; epoch++; view = "live"; frozen = null; seenFrame = awaitingFirstFrame = pausedPicture = false; startedAt = -Infinity; scheduler.stop(); cancelDetection(); session.stop(); reader.cancel(); tracker.reset(); discardCandidate(); recovery.reset(); release(contentCanvas); release(detectCanvas); release(raw); dropScanned(); diagnostics?.overlay?.(null); lastPaint = null; solverPrepared = false; unmatchedCandidates = 0; raw = guide = guideFrame = displayed = solvedReading = null; settingsKey = ""; setting = null; dropProofs(); sampledAt = adoptedAt = laggedAt = -Infinity; showLegend(null); updateRestartControl(); },
     get view() { return view; },
     // Clear: discard the frozen picture and its reading and scan again from
@@ -858,7 +863,7 @@ export function createLiveCamera({ $, video, canvas, getSettings,
       countCells(null, null); showLegend(null);
       canvas.dataset.overlay = "none"; canvas.dataset.delayed = "0";
       canvas.setAttribute?.("data-view", "live");
-      canvas.setAttribute?.("aria-label", "Live camera preview");
+      canvas.setAttribute?.("aria-label", PREVIEW_NAME);
       diagnostics?.event({ stage: "detecting", reason: "cleared" });
       say(aiming());
       scheduler.start({ discardFirst: true }); updateRestartControl();
