@@ -7,7 +7,7 @@ import { TYPES, checkShape, conflicts, fitPlay, fitBlackReadings, makePuzzle } f
 import { fallbackCorners, turnCorners, validQuad } from "./geometry.js";
 import { importPhoto } from "./photo-import.js";
 import { turnCue } from "./turn-cues.js";
-import { createLiveCamera } from "./live-camera.js";
+import { createLiveCamera, PREVIEW_NAME } from "./live-camera.js";
 import { overlayCells } from "./live-overlay.js";
 import { cameraModal } from "./camera-modal.js";
 import { UNFINISHED } from "./task-controller.js";
@@ -439,6 +439,23 @@ export function setupPhotoFlow({
     captured = null;
     const previewCanvas = $("live-preview");
     previewCanvas.getContext?.("2d")?.clearRect?.(0, 0, previewCanvas.width, previewCanvas.height);
+    // The cleared canvas is the page's own again in what it says of itself
+    // too. Its accessible name is the one index.html gives it (the owner's
+    // choice, November 2026). The marks the session before left on it go
+    // with the picture they described; that was not part of the choice, and
+    // came with it (its view, its overlay and whether that is delayed, and
+    // its counts, as data attributes: tests read them, the browser suites
+    // waiting on all but the delay; nothing in the app reads them, and the
+    // page gives the canvas none of its own).
+    // The live camera
+    // sets both when it starts, but that is only once the video plays, and
+    // until then a panel opened again named its empty canvas after the last
+    // session's picture, beside the new starting text below: "Frozen picture
+    // of the solved puzzle: …" after a freeze, "Saved picture …" after
+    // Retake. Set here, in the tap, as the help line is.
+    previewCanvas.setAttribute?.("aria-label", PREVIEW_NAME);
+    for (const mark of previewCanvas.getAttributeNames?.() ?? [])
+      if (mark.startsWith("data-")) previewCanvas.removeAttribute(mark);
     $("take-photo").hidden = false;
     $("take-photo").disabled = saving;
     $("retake-photo").hidden = $("download-live-capture").hidden = $("use-live-capture").hidden = true;

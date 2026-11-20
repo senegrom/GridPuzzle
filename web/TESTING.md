@@ -1609,7 +1609,7 @@ detail in [LIVE_CAMERA.md](LIVE_CAMERA.md).
 | `editor_reread_regressions.cjs` | the cell dialog's re-read, Use proposal, Save and Undo, with controlled OCR completions (a UI test, not a measurement) | `live-acceptance` |
 | `external_replay_regressions.cjs` | three external pictures through automatic detection, tracking and real OCR: no wrong, missed or invented clue unflagged; the two clean pinned photographs must complete an 81-cell reading in each engine within 25 seconds, while the third may be declined and is recorded | `live` |
 | `harness_regressions.cjs` | the harness itself: a page that crashes while its suite waits (Chromium, through a CDP session's `Page.crash`), a page in a context the suite opened that crashes while the suite carries on, and a browser that goes away each fail the engine and lead its failure (in the report, the log and the error thrown), with the event, its time and the page's URL in `ended`; a page that is gone gets no screenshot, the suite's own page still there one; a suite's own failure on a page that is still there is led by nothing and gets its screenshot at once; a context the suite closes itself is no news; every engine runs after the first failure; uncaught errors thrown in the suite's page, in a tab it opens beside it and in a page in a context it opens each fail the engine though the suite carries on, all in `errors`, the other pages' with their URL; a close that never settles, with the browser left running or after it was closed past the harness, ends the run by itself all the same, in a process of its own: exit code 1, the timed-out close in `cleanupErrors` and on stderr, the next engine run and none of the processes Node started for the run left running | `live` |
-| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the camera with Editing set to Play and automatic solving ticked (it only reads: no solver started, no freeze, the help line and the export say why, the shutter keeps the reading), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the camera opened again (its help line starts with the panel's starting text, and the last line of the session before is not shown again), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), a captured reading's review in the editor (as many cells highlighted as the frozen picture shows yellow, with the reading's note), a captured reading that looks upside down (every digit highlighted under the turn note while its still is read again; read turned, the turned reading replaces it under review, read as it lies, it keeps its own flags and note, after a first note that the page may still be turned, pointing to Rotate; the check's task ends either way), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
+| `live_camera_regressions.cjs` | real canvas MediaStream, production OCR, solver and IndexedDB: the live video as the display (no camera frame on the canvas before the freeze, one at it; the canvas in the video's box on phone, tablet and desktop screens, and taking the touches), live solutions frozen until Clear (camera kept on, video paused but attached; turned off by an app switch), the frozen row at 320 px with and without Start preview and a legend whose counts take no room of their own, a live capture without automatic solving (a fresh verified frame with its reading, shown as stored), the camera with Editing set to Play and automatic solving ticked (it only reads: no solver started, no freeze, the help line and the export say why, the shutter keeps the reading), the paper a quarter turn round (no freeze; the help line and the export say the grid looks sideways), the camera opened again (its help line starts with the panel's starting text, and the last line of the session before is not shown again; its preview canvas has the page's own name and none of the session's marks from the tap on), the freeze's wait for clearer clues, off by default (frozen without waiting for a yellow clue's retries) and ticked through its checkbox (saved, restored, three seconds held with its text), a captured reading's review in the editor (as many cells highlighted as the frozen picture shows yellow, with the reading's note), a captured reading that looks upside down (every digit highlighted under the turn note while its still is read again; read turned, the turned reading replaces it under review, read as it lies, it keeps its own flags and note, after a first note that the page may still be turned, pointing to Rotate; the check's task ends either way), exact shutter pixels, reload and delete | `live-camera`, one job per engine |
 | `live_features_regressions.cjs` | the real tracking worker in both pixel transports (a bitmap read back in the worker, which Chromium must decide for, and the page's own readback) with the same verdicts and corners, on a frame tracked at its own size and on a 1600 × 1600 one scaled to 1280 × 1280, and, wherever bitmaps are decided, the same pixels (within 2) and each transport's anchor verified on the other's pixels at its corners; transfer and queue behaviour, selected-cell OCR and diagnostic download privacy | `live-acceptance` |
 | `live_motion_regressions.cjs` | a moving 22-clue scene is read in one pass without motion cancellation, with pixel witnesses in the frame the camera adopted; external-picture tracking when `live-fixtures/` is there | `live-acceptance` |
 | `live_noise_regressions.cjs` | a board re-noised in every frame is read once through automatic detection, the real tracking worker and OCR; covering it keeps the reading and a changed digit replaces it with a reading of the new digit, every blank cell blank and no wrong clue unflagged (on some noisy frames the OCR misreads another clue, a 5 or a 1 as a 3, and flags it); where bitmaps are decided, a frame whose bitmap reads back transparent and one whose bitmap is 1 × 1 are each lost alone (the reading stays, read once, on bitmaps), also right after the change | `live-acceptance` |
@@ -1794,24 +1794,55 @@ phase before, in run 43676136613). Until then a panel opened again showed the
 old line for that stretch. Nothing in the phase is timed: an observer keeps
 the line as it stands each time the page has written it. On a page whose
 camera has not been opened the phase opens it once first, up to the camera's
-aiming line, and closes it, for a line to be the old one; closed at the first
+aiming line (and on until its canvas is named after what it shows, below),
+and closes it, for a line to be the old one; closed at the first
 line that is not the starting text, as at first, that session left WebKit's
 offer of Start preview as the old line, which the reopening writes again, and
 the phase then failed on a page that was right (the review's run with a camera
 that gives no frame until Start preview; the hosted runs never take this way
 in).
+With the line the phase reads what the preview canvas says of itself, its
+accessible name and its marks (its data attributes: the view, the overlay and
+the counts, which the suites wait on, and whether the overlay is delayed,
+which only unit tests read), as the
+closed panel holds it and as the tap is heard: since the owner's next choice
+of that month the tap gives the canvas the page's own name again, "Live camera
+preview", and takes its marks away, which was not part of that choice and came
+with it, where the canvas kept the last session's name and marks until the
+camera started. The session before must have left both there, its marks and a
+name that is not the page's own, or the phase would check nothing: a live view
+without an outline is named as the page names it, and after a session closed
+in that state a tap that never set the name passed the phase (the review's run
+of the phase alone, with a tap that took the marks and left the name: the
+session the phase opens for itself was closed at the aiming line then). So
+that session is closed only once its canvas is named after what it shows (an
+outline, or more), the phase opens it also where the last session left the
+canvas the page's own name, and the phase fails where the closed panel's
+canvas has that name all the same. The close is made in the page, in the run
+that sees the name (`closeOnceNamed()`, which the phase's wait asks until it
+says yes): a live view goes back to the page's own name whenever its outline
+is no longer current, without a frame for half a second or with a sample two
+seconds old, and a close one call after the wait could fall on that (the
+review's reading; of fifteen such closes it measured in Chromium, 43 to 85 ms
+after the first outline, none did). In Chromium on the hosted runner the
+phase before closed with an outline shown (run 44748493194: "Live camera.
+Grid outline shown; reading: …").
 The phase ends by loading the page afresh with its camera fixture. Its
-session may have read and frozen by the time it is closed, and the preview
-canvas keeps a session's "frozen" mark and counts until the next session
-draws; the phase after it, "the freeze's wait", waits for a freeze and would
-pass at once on such a mark. It did, in WebKit on the hosted runner, with an
-earlier form of this phase that froze a session of its own and closed a second
-one before it had drawn: "the freeze's wait" then failed on the old counts
-(run 43672141576). Nothing in the app reads that mark.
+session may have read and frozen by the time it is closed, and until the tap
+set the canvas back, the canvas kept a session's "frozen" mark and counts
+until the next session drew; the phase after it, "the freeze's wait", waits
+for a freeze and passed at once on such a mark, in WebKit on the hosted
+runner, with an earlier form of this phase that froze a session of its own and
+closed a second one before it had drawn: "the freeze's wait" then failed on
+the old counts (run 43672141576). No wait passes on an old mark any more,
+since the next opening's tap takes it away; the page is loaded afresh all the
+same, and the phases after this one start on a page that has had no camera
+session. Nothing in the app reads those marks.
 `web/tests/camera-opened-again.test.js` plays the phase on a stand-in page
-that answers as the page does now, and as it did before, which fails it, and
-runs what the phase leaves in the page (its listener for the tap and its
-observer of the help line) on a stand-in for a page's document. In local
+that answers as the page does now, and as it did before either choice, which
+fails it, and runs what the phase leaves in the page (its listener for the
+tap, its observer of the help line and its reading of the canvas) on a
+stand-in for a page's document. In local
 Chromium the phase took 0.8 s run by itself on a new page (2026-11-15).
 
 The twelve faint structural variants are over a third of the suite. It used
