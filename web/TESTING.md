@@ -681,7 +681,9 @@ so that one that waits holds up no other, and gives them one limit together,
 `READ_LIMIT`: 19.9 seconds, a tenth of a second under the page's default
 timeout, the 20 seconds that `engines()` gives each call on the page that waits
 for something. A page that answers such calls in time answers these too, but
-for that last tenth of a second, and the reads add less to a failed run than
+for that last tenth of a second (and but for the eighth read, below, which
+takes a second by itself: a page that reaches it only in the limit's last
+second has it cut short), and the reads add less to a failed run than
 one such call can. A read that has neither answered nor failed by then keeps
 its fallback, and the report's `readsCutShort` lists each such read as
 `<name>: no answer within 19.9 s`, in the order the `catch` asks for them,
@@ -690,7 +692,8 @@ empty when nothing was still waiting. Reads that answer in time give
 the report what they gave it before, under the same names and in the same
 order, and what a read does after the limit changes nothing. The tenth of a
 second is for the reads that have the page's default timeout of their own, the
-three `page.textContent()` calls and the locator's read. The limit starts
+three `page.textContent()` calls and the locator's read (two locators' reads
+since the eighth, each with that timeout for finding its element). The limit starts
 before any read is asked, but Playwright starts a read's timeout only when the
 read reaches it, and sets its timer for the deadline it has just computed,
 slightly short of the timeout, which Node's timers round down to a whole
@@ -707,34 +710,70 @@ doing, read off the camera's panel over one second, by a second locator's
 hosted runner (run 44076104435, "the freeze's wait", on master, once; the
 same tree had passed minutes before as a pull request's). The seven reads
 said that the video was playing, its track live, and the help line "Waiting
-for a new camera frame. Old readings are hidden; capture to review.", which
-the camera writes when its frame scheduler has seen a frame and then none for
-half a second; they could not say whether the browser had stopped giving
-frames or the scheduler was taking the frames it got for repeats, and the
-owner chose to have the suite record that at the next failure rather than
-chase this one. The read has, twice and a second apart, the scan's own report
-as the camera's diagnostics panel prepares it (the scan's stage and reason,
-its last twelve events with their times, and the frame scheduler's numbers as
-of its last heartbeat: its mode, `video-frame` or `fallback`, whether its
-callbacks stalled, and the frames observed, processed, skipped and taken for
-duplicates) and the player's own state and counts (frames in all and
-dropped, WebKit's decoded count where there is one, the playing time, and
-each camera track's state); and between the two, how many frame callbacks the
-browser gave a listener of the read's own in that second, with the first and
-the last count of frames presented. Frames that stopped show no callback and
-counts that stand still; frames taken for repeats show callbacks, and
-duplicates that go up while the frames observed stand still; frames that are
-scanned show the frames observed going up, and the scan's events say what
-became of them. `view` is the panel's own word for its state. A report that
-cannot be prepared is its error, and the rest is read all the same; the
-preview the read prepares is cleared again each time. On a page that answers,
-the read takes that second, and the reads together with it, where they took
-none; a page that does not answer cuts it short with the others.
+for a new camera frame. Old readings are hidden; capture to review.". The
+camera writes that line while its frame scheduler has had no new frame for
+half a second (`fresh` false), once the camera has scanned a frame since it
+started or was cleared; the camera's flag for that outlives a scheduler that
+is started over (for a new player after Start preview, or when live scanning
+restarts), so the line can stand over a scheduler that has observed nothing
+yet. The reads could not
+say whether the browser had stopped giving frames or the scheduler was taking
+the frames it got for repeats, and the owner chose to have the suite record
+that at the next failure rather than chase this one. The read has, twice and
+a second apart, the scan's own report as the camera's diagnostics panel
+prepares it (the scan's stage and reason, its last twelve events with their
+times, and the frame scheduler's numbers as of its last heartbeat) and the
+player's own state and counts (frames in all and dropped, WebKit's decoded
+count where there is one, the playing time, and each camera track's state);
+and between the two, how many frame callbacks the browser gave a listener of
+the read's own in that second, with the first and the last count of frames
+presented. `view` is the panel's own word for its state.
+
+How the record reads depends on the scheduler's `mode`. In `video-frame`,
+which both engines run in on the hosted runner (their reports of run
+44076104435 say so, with no fall-back and no duplicate), the scheduler counts
+the frames that the browser's frame callbacks bring it:
+
+| In the second | Callbacks | `observed` | `duplicates` | The player's counts |
+| --- | --- | --- | --- | --- |
+| frames are scanned | come | goes up | stands still | go up |
+| frames stopped | none | stands still | stands still | stand still |
+| frames are taken for repeats | come | stands still | goes up with the callbacks | stand still, or are not given |
+| the scheduler's own callback is lost, or its guard drops the frames | come | stands still | stands still | stand still, or are not given |
+
+The last two rows last only on a player whose own counts stand still or are
+not given: where they go up, the scheduler falls back to them within a second
+or so and scans again, and the record then has the mode `fallback` and one
+more in `fallbacks`. The guard drops the frames of a video that is not ready,
+paused, ended or without a size, which the player's state in the record
+says. In `fallback` (a video without frame callbacks, where `callbacks` is
+`null`, or after a fall-back) the scheduler asks the player's counts every
+tenth of a second and counts a duplicate each time they have not gone up, so
+frames that stopped show `duplicates` going up by ten a second there, with
+`observed` and the player's counts standing still. `callbackStalled` says
+only that no callback has brought a new frame for a second, in `video-frame`:
+it is true while frames are taken for repeats, though callbacks come, and
+never true in `fallback`. The scan's events say what became of the frames
+that were scanned.
+
+What the panel says where it could not prepare its report is the scan's
+`error` (its preview, which then still holds what it held, is not read), and
+so is a preview that is no report or a panel without its diagnostics; the
+rest is read all the same, and the preview the read prepares is cleared again
+each time. A player that will not give its counts, or take the listener,
+gives `null` for them. On a page that answers, the read takes that second,
+and the reads together with it, where they took none; the failure's
+screenshot, which the harness takes after the reads, comes that second later.
+A page that does not answer cuts the read short with the others, and so does
+one that reaches it only in the limit's last second.
 `web/tests/camera-frames.test.js` takes what the read asks the page from the
-`catch` itself and runs it on a stand-in for the panel, with frames taken for
-repeats, frames that stopped and frames that are scanned, a report that
-cannot be prepared, a video that gives no frame callbacks, and one without
-playback quality or a stream.
+`catch` itself and runs its text in two ways: on a stand-in for the panel
+whose report `scan-diagnostics.js` makes, for what the read keeps and what it
+does where a part fails (a report that cannot be prepared, a video that gives
+no frame callbacks, a player that throws, one without playback quality or a
+stream); and with the frame scheduler itself behind the panel
+(`live-frame-scheduler.js`), one clock for the three, for each row of the
+table and for both `fallback` cases.
 The measurements below were taken with the seven reads the `catch` then had.
 The `catch` then throws the
 suite's own failure again, so in the state above the browser's close fails as
