@@ -938,3 +938,32 @@ def test_pytest_sees_every_way_to_mark_a_test_slow(tmp_path):
         "test_spellings.py::test_param[2]",
         "test_spellings.py::test_alias",
     }
+
+
+# The one bounded test the forward-compatibility legs leave out.
+_LINT_TEST = "tests/test_static_server.py::test_the_program_passes_the_projects_lint"
+
+
+def test_the_forward_compatibility_legs_leave_the_ruff_test_to_the_jobs_that_choose_their_ruff():
+    """tests/test_static_server.py lints the browser suites' static-server
+    program with ruff, by the project's rules. The forward-compatibility legs
+    install whatever ruff is newest, and a deprecation warning in any child
+    process is an error there: a new ruff that flags the program, or one whose
+    start a prerelease Python warns about, would fail a leg on a pull request
+    that touched neither (the owner's choice of November 2026: leave it out
+    there). They deselect that one test, by an id that pytest must still
+    collect and that must take just that test away: a wrong id deselects
+    nothing, without a word. The two CI jobs that choose their ruff, the
+    pinned one and the lowest allowed, deselect nothing, and lint the tree
+    with it as well."""
+    job = _jobs(_workflow("forward-compatibility.yml"))["compatibility"]
+    assert f'python -X dev -m pytest -q tests -m "not slow" --deselect {_LINT_TEST} --durations=10' in " ".join(job.split())
+    assert job.count("--deselect") == 1
+    whole = _collect("tests/test_static_server.py")
+    assert _LINT_TEST in whole
+    assert _collect("tests/test_static_server.py", "--deselect", _LINT_TEST) == whole - {_LINT_TEST}
+    ci = _jobs(_workflow("ci.yml"))
+    for name in ("core", "lower-bounds"):
+        assert "--deselect" not in ci[name], name
+        assert "run: python -m ruff check .\n" in ci[name], name
+        assert 'python -X dev -m pytest -q tests -m "not slow"' in " ".join(ci[name].split()), name
