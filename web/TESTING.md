@@ -667,15 +667,16 @@ engines' reports, the line on stderr and that each tab closed once, after the
 probe's last step when it got that far.
 
 Until November 2026 the reads of the page in `live_camera`'s `catch` had no
-limit together, and some none at all. After any failure the suite reads seven
-things off its page for its report, each with a fallback for a read that fails
+limit together, and some none at all. After any failure the suite reads things
+off its page for its report, seven of them then (an eighth came later that
+month, below), each with a fallback for a read that fails
 (`""` for a text, `null` otherwise): three `page.textContent()` calls, which
 wait at most the page's default timeout, three `page.evaluate()` calls, which
 Playwright gives none, and a locator's `evaluate()`, whose timeout covers only
 finding the element. They were read in turn, so on a page that never answers,
 as in the state above, the first `page.evaluate()` waited for ever, with no
 report for that engine and the run held until the job's limit. They now go
-through `readWithin()` in `scripts/watch.cjs`, which starts all seven at once,
+through `readWithin()` in `scripts/watch.cjs`, which starts them all at once,
 so that one that waits holds up no other, and gives them one limit together,
 `READ_LIMIT`: 19.9 seconds, a tenth of a second under the page's default
 timeout, the 20 seconds that `engines()` gives each call on the page that waits
@@ -699,7 +700,43 @@ in that millisecond, and then keep its fallback without being named. With
 the tenth of a second the limit ends first: such a read still waiting then is
 cut short and named, and its own timeout, a tenth of a second later, changes
 nothing. Nothing is printed for a read cut short: the engine has failed
-already, and its failure is printed as before. The `catch` then throws the
+already, and its failure is printed as before.
+An eighth read came later that month, `frames`: what the camera's frames are
+doing, read off the camera's panel over one second, by a second locator's
+`evaluate()`. It came after a wait for a freeze ran out in WebKit on the
+hosted runner (run 44076104435, "the freeze's wait", on master, once; the
+same tree had passed minutes before as a pull request's). The seven reads
+said that the video was playing, its track live, and the help line "Waiting
+for a new camera frame. Old readings are hidden; capture to review.", which
+the camera writes when its frame scheduler has seen a frame and then none for
+half a second; they could not say whether the browser had stopped giving
+frames or the scheduler was taking the frames it got for repeats, and the
+owner chose to have the suite record that at the next failure rather than
+chase this one. The read has, twice and a second apart, the scan's own report
+as the camera's diagnostics panel prepares it (the scan's stage and reason,
+its last twelve events with their times, and the frame scheduler's numbers as
+of its last heartbeat: its mode, `video-frame` or `fallback`, whether its
+callbacks stalled, and the frames observed, processed, skipped and taken for
+duplicates) and the player's own state and counts (frames in all and
+dropped, WebKit's decoded count where there is one, the playing time, and
+each camera track's state); and between the two, how many frame callbacks the
+browser gave a listener of the read's own in that second, with the first and
+the last count of frames presented. Frames that stopped show no callback and
+counts that stand still; frames taken for repeats show callbacks, and
+duplicates that go up while the frames observed stand still; frames that are
+scanned show the frames observed going up, and the scan's events say what
+became of them. `view` is the panel's own word for its state. A report that
+cannot be prepared is its error, and the rest is read all the same; the
+preview the read prepares is cleared again each time. On a page that answers,
+the read takes that second, and the reads together with it, where they took
+none; a page that does not answer cuts it short with the others.
+`web/tests/camera-frames.test.js` takes what the read asks the page from the
+`catch` itself and runs it on a stand-in for the panel, with frames taken for
+repeats, frames that stopped and frames that are scanned, a report that
+cannot be prepared, a video that gives no frame callbacks, and one without
+playback quality or a stream.
+The measurements below were taken with the seven reads the `catch` then had.
+The `catch` then throws the
 suite's own failure again, so in the state above the browser's close fails as
 well, and `exitIfUnclosed()` ends the run after its report is written: by
 design `live_camera` calls `process.exit()` within about 100 seconds of the
@@ -778,7 +815,7 @@ page that answers every read, one that fails every read and one that never
 answers; one as in the state above, whose reads with the page's default
 timeout, timed out as Playwright times them out and shortened as the limit is,
 run out of it after the limit while `page.evaluate()` never answers, with a
-browser that will not close either, so that all seven are cut short; and one
+browser that will not close either, so that all eight are cut short; and one
 where one read never answers and another answers after the limit, while the
 screenshot is taken, before the report is written.
 
@@ -853,7 +890,7 @@ when it was stopped, as last sampled 149.4 and 149.7 s after the failure, with
 no report. As it is now, at 56 to 100% CPU, each ended by itself with exit code
 1, its report written with the step's own failure and nothing in
 `cleanupErrors`. In `live_camera` the call was cut short 19.9 s after the
-failure and the `catch`'s seven reads 19.9 s after that, the failure's
+failure and the `catch`'s reads, seven then, 19.9 s after that, the failure's
 screenshot ran out of time 20 s later, the browser then closed, which failed
 the calls still waiting, the viewport's among them, and the `exit` event came
 60.1 s after the failure, the viewport's name ahead of the seven reads in

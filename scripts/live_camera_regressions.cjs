@@ -169,13 +169,60 @@ function phaseTimer(report,name) {
     });
   };
 }
+// What the camera's frames are doing, read off the camera's panel over one
+// second after a failure (the owner's choice of November 2026, after a wait
+// for a freeze ran out in WebKit on the hosted runner with the video playing
+// and the help line waiting for a new camera frame, for a reason nobody
+// found). Twice, a second apart: the scan's own report as its diagnostics
+// panel prepares it (scan-diagnostics.js), which has where the scan stands,
+// its last events with their times and the frame scheduler's numbers as of its
+// last heartbeat (live-frame-scheduler.js: frames observed, processed and
+// taken for repeats, the callbacks' mode and whether they stalled); and the
+// player's own state and counts of frames, which the scheduler's fallback
+// goes by, with its camera tracks. Between the two, the frame callbacks the
+// browser itself gives a listener of this read's own. So frames that stopped
+// (no callback, counts that stand still), frames the scheduler takes for
+// repeats (callbacks, and duplicates that go up while observed stands still)
+// and frames it scans (observed goes up) tell apart. A report that cannot be
+// prepared is its error, and the rest is read all the same. It runs in the
+// page, on the panel: web/tests/camera-frames.test.js runs it on a stand-in
+// for one.
+async function cameraFrames(panel) {
+  const video=panel.querySelector("#video"),node=key=>panel.querySelector(`#live-diagnostics [data-diagnostic="${key}"]`);
+  const scan=()=>{
+    try {
+      node("prepare").click();
+      const report=JSON.parse(node("preview").textContent);
+      return {source:report.source,stage:report.stage,reason:report.reason,milliseconds:report.elapsedMilliseconds,scheduling:report.scheduling,
+        events:report.events.slice(-12).map(event=>`${event.reason} ${event.milliseconds}`)};
+    } catch(error){return {error:String(error?.message??error)};}
+    finally{try{node("clear").click();}catch{/* No panel to clear. */}}
+  };
+  const player=()=>{
+    const quality=video.getVideoPlaybackQuality?.();
+    return {paused:video.paused,ended:video.ended,ready:video.readyState,width:video.videoWidth,time:video.currentTime,
+      total:quality?.totalVideoFrames??null,dropped:quality?.droppedVideoFrames??null,decoded:video.webkitDecodedFrameCount??null,
+      tracks:video.srcObject?.getVideoTracks?.().map(track=>({ready:track.readyState,muted:track.muted,enabled:track.enabled}))??null};
+  };
+  const listens=typeof video.requestVideoFrameCallback==="function",presented=[],started=performance.now();
+  const before={scan:scan(),player:player()};
+  let handle=null;
+  const ask=()=>{handle=video.requestVideoFrameCallback((_time,metadata)=>{presented.push(metadata?.presentedFrames??null);ask();});};
+  if(listens)ask();
+  await new Promise(resolve=>setTimeout(resolve,1000));
+  if(handle!==null)video.cancelVideoFrameCallback?.(handle);
+  return {view:panel.getAttribute("data-view"),before,
+    callbacks:listens?{count:presented.length,first:presented[0]??null,last:presented.at(-1)??null}:null,
+    milliseconds:Math.round(performance.now()-started),after:{scan:scan(),player:player()}};
+}
 // What the page shows after a failure, for the engine's report, each read
 // with its fallback for when it fails. They share READ_LIMIT (watch.cjs), a
 // tenth of a second under the page's default timeout, so that a page that
 // will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
 // run here: a read still waiting then keeps its fallback, and
 // `readsCutShort` names it, after any step's clean-up cut short before it
-// (stepThenPutBack()).
+// (stepThenPutBack()). The last of them, the camera's frames, takes a second
+// on a page that answers; the reads all start at once.
 async function readAfterFailure(page,report) {
   const {values,cutShort}=await readWithin({
     storageStatus:[()=>page.textContent("#capture-storage-status"),""],
@@ -185,6 +232,7 @@ async function readAfterFailure(page,report) {
     video:[()=>page.locator("#video").evaluate(v=>({muted:v.muted,paused:v.paused,width:v.videoWidth,ready:v.readyState,inline:v.playsInline,tracks:v.srcObject?.getTracks().map(t=>({kind:t.kind,ready:t.readyState}))})),null],
     statusDetail:[()=>page.textContent("#status-detail"),""],
     cameraHelp:[()=>page.textContent("#camera-help"),""],
+    frames:[()=>page.locator("#camera-panel").evaluate(cameraFrames),null],
   },READ_LIMIT);
   Object.assign(report,values,{readsCutShort:[...(report.readsCutShort??[]),...cutShort]});
 }
