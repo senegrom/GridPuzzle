@@ -81,7 +81,7 @@ function standIn({ helps = [OLD], names = [SESSION.name], seen }) {
       calls.push({ kind: 'evaluate', run, source: text, argument });
       return text === '()=>window.openedAgain' ? structuredClone(seen) : undefined;
     },
-    async waitForFunction(run, argument, options) { calls.push({ kind: 'waitForFunction', source: String(run).replace(/\s+/g, ''), argument, options }); },
+    async waitForFunction(run, argument, options) { calls.push({ kind: 'waitForFunction', run, source: String(run).replace(/\s+/g, ''), argument, options }); },
     async click(selector) { calls.push({ kind: 'click', selector }); },
     async goto(url) { calls.push({ kind: 'goto', url }); },
     async waitForSelector(selector) { calls.push({ kind: 'waitForSelector', selector }); },
@@ -98,10 +98,10 @@ const played = async (answers) => {
   const error = await camera.openedAgain(page, report, BASE).then(() => undefined, (failure) => failure);
   return { page, report, error };
 };
-// The phase's wait for the aiming line, as the page is asked, and its wait
-// for the canvas of a session of its own to be named after what it shows.
+// The phase's wait for the aiming line, as the page is asked. Its wait for
+// the canvas of a session of its own to be named after what it shows is on
+// camera.closeOnceNamed, which closes the camera in the page as it says yes.
 const AIMED = '()=>openedAgain.aimed===true';
-const NAMED = 'own=>document.getElementById("live-preview").getAttribute("aria-label")!==own';
 // What the phase did, in order, in a few words a call.
 const steps = (page) => page.calls.map((call) => (call.kind === 'click' ? `click ${call.selector}`
   : call.kind === 'textContent' ? 'read the help line'
@@ -112,7 +112,7 @@ const steps = (page) => page.calls.map((call) => (call.kind === 'click' ? `click
         : call.kind === 'evaluate' && call.source.includes('navigator.mediaDevices') ? 'camera fixture'
           : call.kind === 'evaluate' && call.source === '()=>{window.liveMode="grid";}' ? 'the paper shows its grid'
             : call.kind === 'waitForFunction' && call.source === AIMED ? 'wait for the aiming line'
-              : call.kind === 'waitForFunction' && call.source === NAMED ? 'wait for the canvas\'s own name to go'
+              : call.kind === 'waitForFunction' && call.run === camera.closeOnceNamed ? 'wait for the canvas\'s own name to go, and close in the page'
               // startLive()'s own wait, for the video or the offer of Start preview, is part of the tap; any other wait is told.
               : call.kind === 'waitForFunction' && call.source.includes('!start.hidden||video.videoWidth>0') ? null
                 : call.kind === 'waitForFunction' ? `another wait: ${call.source}`
@@ -129,11 +129,12 @@ const waits = (page) => page.calls.filter((call) => call.kind === 'waitForFuncti
   .map(({ argument, options }) => ({ argument, options }));
 const LONG = { argument: null, options: { timeout: 150000 } };
 // Its wait for the canvas's own name to go has the same limit, and is told that name.
-const nameWaits = (page) => page.calls.filter((call) => call.kind === 'waitForFunction' && call.source === NAMED)
+const nameWaits = (page) => page.calls.filter((call) => call.kind === 'waitForFunction' && call.run === camera.closeOnceNamed)
   .map(({ argument, options }) => ({ argument, options }));
 const LONG_NAMED = { argument: PREVIEW_NAME, options: { timeout: 150000 } };
-// A session of the phase's own, before the reopening.
-const OWN_SESSION = ['watch', 'click #camera', 'wait for the aiming line', 'wait for the canvas\'s own name to go', 'click #close-camera'];
+// A session of the phase's own, before the reopening. Its close is the page's
+// own doing, in the run that sees the name: no call of the phase's closes it.
+const OWN_SESSION = ['watch', 'click #camera', 'wait for the aiming line', 'wait for the canvas\'s own name to go, and close in the page'];
 
 test('the phase passes where the tap sets the starting text and the camera\'s aiming line follows it, on the line the phase before left', async () => {
   const { page, report, error } = await played({ seen: NEW });
@@ -164,7 +165,10 @@ test('the phase passes where the tap sets the starting text and the camera\'s ai
 // page's own name, a live view without an outline being named so, and a tap
 // that never set the name passed the phase (the review's run with a tap that
 // took the marks alone). So it is closed once the canvas's name is no longer
-// the page's own: an outline is shown then, or more.
+// the page's own: an outline is shown then, or more. And it is closed in the
+// page, in the run that sees that name: a live view is named as the page
+// names it again whenever its outline is no longer current, so a close one
+// call after the wait could still fall on the page's own name.
 test('on a page whose camera has not been opened the phase opens it once first, up to the aiming line and until its canvas is named after what it shows, and closes it', async () => {
   const { page, report, error } = await played({ helps: [CAMERA_START_HELP, AIMING], seen: NEW });
   assert.equal(error, undefined);
@@ -212,10 +216,10 @@ test('with WebKit\'s offer of Start preview before both aiming lines, the sessio
 // last session's name and marks), with its own name and a mark left, with no
 // mark and another picture's name; and with not enough of a session on it
 // before the tap: no mark, where the phase would check nothing of the marks,
-// or the page's own name, where it would check nothing of the name (the
-// phase opens a session of its own where it reads that name on the closed
-// canvas, so this is a canvas that lost its name between that read and the
-// tap).
+// or the page's own name, where it would check nothing of the name. Nothing
+// in the page writes a closed canvas, and the phase's own session is closed
+// in the run that sees another name, so the phase itself leaves no way to
+// that last row; it is held all the same, for a page that changes.
 const LINE = /^the tap that opens the camera again sets the panel's starting text/, AGAIN = /^the old line is not written again before the camera's own first line/,
   PREMISE = /^the closed panel holds the last line of the session before/, CANVAS = /^the tap sets the preview canvas back/,
   CANVAS_PREMISE = /^the closed panel's canvas holds the marks of the session before, and a name that is not the page's own/;
@@ -258,6 +262,33 @@ test('a page in WebKit, which offers Start preview before the camera\'s first li
   const { report, error } = await played({ seen });
   assert.equal(error, undefined);
   assert.deepEqual(report.openedAgain.lines, seen.lines);
+});
+
+// closeOnceNamed() runs in the page, as what the phase's wait for a session
+// of its own asks again and again until it says yes. Here it runs on a
+// stand-in document: the canvas with its name, and a Close button that notes
+// the name the canvas has as it is tapped (its handler stops the camera,
+// which leaves the canvas as it is).
+test('in the page: the camera is closed in the run that sees a name other than the page\'s own, once, and not before', () => {
+  const taps = [];
+  const canvas = { name: PREVIEW_NAME, getAttribute(attribute) { return attribute === 'aria-label' ? this.name : null; } };
+  const close = { click() { taps.push(canvas.name); } };
+  const document = { getElementById: (id) => (id === 'live-preview' ? canvas : id === 'close-camera' ? close : null) };
+  const named = new Function('document', `return (${camera.closeOnceNamed});`)(document);
+  assert.equal(named(PREVIEW_NAME), false);
+  assert.equal(named(PREVIEW_NAME), false);
+  assert.deepEqual(taps, [], 'no close while the canvas has the page\'s own name');
+  canvas.name = SESSION.name;
+  assert.equal(named(PREVIEW_NAME), true);
+  assert.deepEqual(taps, [SESSION.name], 'closed once, under the name it was seen with');
+  // A canvas with no name at all is not the page's own either.
+  canvas.name = null; taps.length = 0;
+  assert.equal(named(PREVIEW_NAME), true);
+  assert.deepEqual(taps, [null]);
+  // The name it is told is the one it goes by.
+  canvas.name = SESSION.name; taps.length = 0;
+  assert.equal(named(SESSION.name), false);
+  assert.deepEqual(taps, []);
 });
 
 // watchOpening() runs in the page. Here it runs on a stand-in for a page's

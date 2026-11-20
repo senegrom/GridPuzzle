@@ -1705,7 +1705,8 @@ that gives no frame until Start preview; the hosted runs never take this way
 in).
 With the line the phase reads what the preview canvas says of itself, its
 accessible name and its marks (its data attributes: the view, the overlay and
-whether that is delayed, and the counts, which the suites wait on), as the
+the counts, which the suites wait on, and whether the overlay is delayed,
+which only unit tests read), as the
 closed panel holds it and as the tap is heard: since the owner's next choice
 of that month the tap gives the canvas the page's own name again, "Live camera
 preview", and takes its marks away, which was not part of that choice and came
@@ -1719,9 +1720,15 @@ session the phase opens for itself was closed at the aiming line then). So
 that session is closed only once its canvas is named after what it shows (an
 outline, or more), the phase opens it also where the last session left the
 canvas the page's own name, and the phase fails where the closed panel's
-canvas has that name all the same. In Chromium on the hosted runner the phase
-before closed with an outline shown (run 44748493194: "Live camera. Grid
-outline shown; reading: …").
+canvas has that name all the same. The close is made in the page, in the run
+that sees the name (`closeOnceNamed()`, which the phase's wait asks until it
+says yes): a live view goes back to the page's own name whenever its outline
+is no longer current, without a frame for half a second or with a sample two
+seconds old, and a close one call after the wait could fall on that (the
+review's reading; of fifteen such closes it measured in Chromium, 43 to 85 ms
+after the first outline, none did). In Chromium on the hosted runner the
+phase before closed with an outline shown (run 44748493194: "Live camera.
+Grid outline shown; reading: …").
 The phase ends by loading the page afresh with its camera fixture. Its
 session may have read and frozen by the time it is closed, and until the tap
 set the canvas back, the canvas kept a session's "frozen" mark and counts

@@ -444,8 +444,9 @@ export function setupPhotoFlow({
     // choice, November 2026). The marks the session before left on it go
     // with the picture they described; that was not part of the choice, and
     // came with it (its view, its overlay and whether that is delayed, and
-    // its counts, as data attributes: the suites wait on them, nothing in
-    // the app reads them, and the page gives the canvas none of its own).
+    // its counts, as data attributes: tests read them, the browser suites
+    // waiting on all but the delay; nothing in the app reads them, and the
+    // page gives the canvas none of its own).
     // The live camera
     // sets both when it starts, but that is only once the video plays, and
     // until then a panel opened again named its empty canvas after the last

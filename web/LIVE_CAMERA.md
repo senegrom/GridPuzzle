@@ -284,9 +284,10 @@ the starting text until the camera started: "Frozen picture of the solved
 puzzle: …" after a freeze, "Saved picture …" after Retake), and the marks the
 session before left on it are gone, which was not part of that choice and
 came with it. The marks are the canvas's data attributes, its view, its
-overlay and whether that is delayed, and its counts, which the suites wait on
-and nothing in the app reads; the page gives the canvas none of its own, and
-the tap takes away whatever is there. The
+overlay and whether that is delayed, and its counts: tests read them (the
+browser suites wait on all but the delay) and nothing in the app does; the
+page gives the canvas none of its own, and the tap takes away whatever is
+there. The
 diagnostics record Play beside automatic solving, as `settings.playing`.
 
 While the freeze waits, no solution is shown and the help line says "Solution

@@ -450,8 +450,9 @@ async function pageLyingSideways(page,report) {
 // of Start preview, which the next opening may well write again). It does
 // the same where the last session was closed with its canvas still named as
 // the page names it, and closes its own session only once the canvas is
-// named after what it shows (an outline, or more), for the canvas's check
-// below. The line
+// named after what it shows (an outline, or more), in the page and in the
+// run that sees that name (closeOnceNamed()), for the canvas's check below.
+// The line
 // is read as the tap is heard on the document, which is after the button's
 // own handler and, with the suite's camera, which answers at once, after the
 // panel is shown; and from the tap on the line is kept as it stands each time
@@ -505,14 +506,27 @@ function watchOpening(aiming) {
 }
 // The camera's aiming line, whichever of its three (live-camera.js aiming()).
 const AIMING_LINE="^Hold the grid steady\\. Recognition (and solution )?appears? here automatically\\.$|^Automatic reading is switched off\\.";
+// Closes the camera once its preview canvas is named after what it shows,
+// and says whether it has: the phase waits on it for the session of its own.
+// `own` is the page's own name for the canvas. The close is in the page, in
+// the run that sees the name, because a live view goes back to the page's own
+// name whenever its outline is no longer current (no frame for half a second,
+// or a sample two seconds old): a close one call later could fall on that,
+// and leave the canvas the very name this session is there to replace (the
+// review's reading; in fifteen closes it measured, none did). It runs in the
+// page: web/tests/camera-opened-again.test.js runs it on a stand-in for one.
+function closeOnceNamed(own) {
+  if(document.getElementById("live-preview").getAttribute("aria-label")===own)return false;
+  document.getElementById("close-camera").click();
+  return true;
+}
 async function openedAgain(page,report,base) {
   await page.evaluate(()=>{window.liveMode="grid";});
   if(await page.textContent("#camera-help")===CAMERA_START_HELP||await page.getAttribute("#live-preview","aria-label")===CAMERA_PREVIEW_NAME){
     await page.evaluate(watchOpening,AIMING_LINE);
     await startLive(page);
     await page.waitForFunction(()=>openedAgain.aimed===true,null,{timeout:150000});
-    await page.waitForFunction(own=>document.getElementById("live-preview").getAttribute("aria-label")!==own,CAMERA_PREVIEW_NAME,{timeout:150000});
-    await page.click("#close-camera");
+    await page.waitForFunction(closeOnceNamed,CAMERA_PREVIEW_NAME,{timeout:150000});
   }
   const old=await page.textContent("#camera-help");
   assert.ok(old&&old!==CAMERA_START_HELP,`the closed panel holds the last line of the session before (${JSON.stringify(old)})`);
@@ -950,5 +964,5 @@ async function run() {
   } finally{server.close();}
 }
 module.exports = { run, readAfterFailure, stepThenPutBack, layersAtEachScreen, narrowScreen, captureWithoutAutoSolve, readsOnlyInPlay,
-  pageLyingSideways, openedAgain, watchOpening, CAMERA_START_HELP, CAMERA_PREVIEW_NAME, AIMING_LINE };
+  pageLyingSideways, openedAgain, watchOpening, closeOnceNamed, CAMERA_START_HELP, CAMERA_PREVIEW_NAME, AIMING_LINE };
 main(module,run);
