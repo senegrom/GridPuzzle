@@ -190,7 +190,9 @@ Python 3.14, with the GIL required off, on Python 3.15 and on the Python 3.16
 prerelease, with warnings treated as errors. It leaves out one test, the one
 that runs ruff (the lint of the browser suites' static-server program in
 `tests/test_static_server.py`): those legs install whatever ruff is newest,
-and the two CI jobs that choose their ruff run that test.
+and the two jobs of the CI workflow that choose their ruff run that test, the
+bounded suite's with the pinned ruff and the lowest-dependencies job with the
+lowest allowed.
 
 A forward-compatibility leg tests a CPython before its final release by
 allowing prereleases, and says so in its label ("Python 3.16 prerelease").

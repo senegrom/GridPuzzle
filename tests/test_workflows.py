@@ -955,15 +955,25 @@ def test_the_forward_compatibility_legs_leave_the_ruff_test_to_the_jobs_that_cho
     collect and that must take just that test away: a wrong id deselects
     nothing, without a word. The two CI jobs that choose their ruff, the
     pinned one and the lowest allowed, deselect nothing, and lint the tree
-    with it as well."""
+    with it as well. Each of the three jobs has one step that runs pytest,
+    whose command is held to its end: nothing else narrows what a job runs,
+    and no second step runs the lint test on the legs after all."""
     job = _jobs(_workflow("forward-compatibility.yml"))["compatibility"]
-    assert f'python -X dev -m pytest -q tests -m "not slow" --deselect {_LINT_TEST} --durations=10' in " ".join(job.split())
-    assert job.count("--deselect") == 1
+    assert _pytest_command(job) == f'python -X dev -m pytest -q tests -m "not slow" --deselect {_LINT_TEST} --durations=10'
+    assert [line for line in job.splitlines() if "ruff" in line and not line.lstrip().startswith("#")] == []
     whole = _collect("tests/test_static_server.py")
     assert _LINT_TEST in whole
     assert _collect("tests/test_static_server.py", "--deselect", _LINT_TEST) == whole - {_LINT_TEST}
     ci = _jobs(_workflow("ci.yml"))
+    assert _pytest_command(ci["core"]) == 'python -X dev -m pytest -q tests -m "not slow" --durations=10'
+    assert _pytest_command(ci["lower-bounds"]) == 'python -X dev -m pytest -q tests -m "not slow"'
     for name in ("core", "lower-bounds"):
-        assert "--deselect" not in ci[name], name
-        assert "run: python -m ruff check .\n" in ci[name], name
-        assert 'python -X dev -m pytest -q tests -m "not slow"' in " ".join(ci[name].split()), name
+        assert "        run: python -m ruff check .\n" in ci[name], name
+
+
+def _pytest_command(job: str) -> str:
+    """The command of the one step of `job` that runs pytest, on one line as
+    the runner gets it: the step's `run:`, a folded block's lines joined."""
+    step = _step(job, "-m pytest")
+    (run,) = re.findall(r"^        run: (.*(?:\n          .*)*)$", step, re.M)
+    return " ".join(run.removeprefix(">-").split())
