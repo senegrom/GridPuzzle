@@ -169,13 +169,94 @@ function phaseTimer(report,name) {
     });
   };
 }
+// What the camera's frames are doing, read off the camera's panel over one
+// second after a failure (the owner's choice of November 2026, after a wait
+// for a freeze ran out in WebKit on the hosted runner with the video playing
+// and the help line waiting for a new camera frame, for a reason nobody
+// found). Twice, a second apart: the scan's own report as its diagnostics
+// panel prepares it (scan-diagnostics.js), which has where the scan stands,
+// its last events with their times and the frame scheduler's numbers as of its
+// last heartbeat (live-frame-scheduler.js); and the player's own state and
+// counts of frames, which the scheduler's fallback goes by, with its camera
+// tracks. Between the two, the frame callbacks the browser itself gives a
+// listener of this read's own.
+// How it reads, in the scheduler's mode `video-frame`, which both engines
+// run in on the hosted runner: frames that stopped show no callback, and
+// frames observed, duplicates and the player's counts that all stand still.
+// Frames the scheduler takes for repeats show callbacks, and duplicates that
+// go up with them while the frames observed stand still. Frames it scans
+// show the frames observed going up. Callbacks with neither count moving
+// show a scheduler whose own callback is no longer called, or whose guard
+// drops the frames (a video not ready, paused, ended or without a size,
+// which the player's state says, or a callback that brings neither a count
+// nor a media time). Repeats and a lost callback last only on a player whose
+// own counts stand still or are not given: where they go up, the scheduler
+// falls back to them within a second or so and scans again (mode
+// `fallback`, one more in `fallbacks`). Frames the guard drops stay dropped
+// in either mode: a video that is not ready or has no size still falls back
+// where the counts go up, and scans nothing, and one that is paused or ended
+// never falls back.
+// In mode `fallback` (a video without frame callbacks, or after a fall-back)
+// the scheduler asks the player's count of frames every tenth of a second
+// and counts a duplicate each time it has not gone up, so frames that
+// stopped show duplicates going up by ten a second there. A player that
+// gives no such count is asked its playing time instead, and a clock that
+// runs on over stopped frames then counts as frames observed: the player's
+// total, decoded count and time in the record say which. `callbackStalled`
+// says only that no callback has brought a new frame for a second, in mode
+// `video-frame` (so with repeats too), and never in `fallback`.
+// web/TESTING.md has this as a table, and web/tests/camera-frames.test.js
+// makes each case with the scheduler itself.
+// What the panel says where it could not prepare its report is the scan's
+// error (its preview then still holds what it held), and the rest is read
+// all the same; a player that will not give its counts, or take the
+// listener, gives nothing for them. It runs in the page, on the panel: the
+// test runs its text on a stand-in for one.
+async function cameraFrames(panel) {
+  const video=panel.querySelector("#video"),node=key=>panel.querySelector(`#live-diagnostics [data-diagnostic="${key}"]`);
+  const scan=()=>{
+    try {
+      node("prepare").click();
+      const refused=node("error").textContent;
+      if(refused)return {error:refused};
+      const report=JSON.parse(node("preview").textContent);
+      return {source:report.source,stage:report.stage,reason:report.reason,milliseconds:report.elapsedMilliseconds,scheduling:report.scheduling,
+        events:report.events.slice(-12).map(event=>`${event.reason} ${event.milliseconds}`)};
+    } catch(error){return {error:String(error?.message??error)};}
+    finally{try{node("clear").click();}catch{/* No panel to clear. */}}
+  };
+  const player=()=>{
+    let quality=null;
+    try{quality=video.getVideoPlaybackQuality?.()??null;}catch{/* A player that will not say. */}
+    return {paused:video.paused,ended:video.ended,ready:video.readyState,width:video.videoWidth,time:video.currentTime,
+      total:quality?.totalVideoFrames??null,dropped:quality?.droppedVideoFrames??null,decoded:video.webkitDecodedFrameCount??null,
+      tracks:video.srcObject?.getVideoTracks?.().map(track=>({ready:track.readyState,muted:track.muted,enabled:track.enabled}))??null};
+  };
+  const presented=[],started=performance.now();
+  let handle=null,listens=typeof video.requestVideoFrameCallback==="function";
+  const ask=()=>{
+    try{handle=video.requestVideoFrameCallback((_time,metadata)=>{presented.push(metadata?.presentedFrames??null);ask();});}
+    catch{handle=null;listens=presented.length>0;}
+  };
+  const before={scan:scan(),player:player()};
+  if(listens)ask();
+  await new Promise(resolve=>setTimeout(resolve,1000));
+  if(handle!==null){try{video.cancelVideoFrameCallback?.(handle);}catch{/* Gone with its player. */}}
+  return {view:panel.getAttribute("data-view"),before,
+    callbacks:listens?{count:presented.length,first:presented[0]??null,last:presented.at(-1)??null}:null,
+    milliseconds:Math.round(performance.now()-started),after:{scan:scan(),player:player()}};
+}
 // What the page shows after a failure, for the engine's report, each read
 // with its fallback for when it fails. They share READ_LIMIT (watch.cjs), a
 // tenth of a second under the page's default timeout, so that a page that
 // will not answer, as in the WebKit hang (web/TESTING.md), cannot hold the
 // run here: a read still waiting then keeps its fallback, and
 // `readsCutShort` names it, after any step's clean-up cut short before it
-// (stepThenPutBack()).
+// (stepThenPutBack()). The last of them, the camera's frames, takes a second
+// on a page that answers; the reads all start at once. So the failure's
+// screenshot, which the harness takes after them, comes that second later,
+// and a page that reaches that read only in the limit's last second has it
+// cut short.
 async function readAfterFailure(page,report) {
   const {values,cutShort}=await readWithin({
     storageStatus:[()=>page.textContent("#capture-storage-status"),""],
@@ -185,6 +266,7 @@ async function readAfterFailure(page,report) {
     video:[()=>page.locator("#video").evaluate(v=>({muted:v.muted,paused:v.paused,width:v.videoWidth,ready:v.readyState,inline:v.playsInline,tracks:v.srcObject?.getTracks().map(t=>({kind:t.kind,ready:t.readyState}))})),null],
     statusDetail:[()=>page.textContent("#status-detail"),""],
     cameraHelp:[()=>page.textContent("#camera-help"),""],
+    frames:[()=>page.locator("#camera-panel").evaluate(cameraFrames),null],
   },READ_LIMIT);
   Object.assign(report,values,{readsCutShort:[...(report.readsCutShort??[]),...cutShort]});
 }

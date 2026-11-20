@@ -55,8 +55,8 @@ Both are recorded in `benchmarks/solver_memory_pruning_2026-09-23.md`.
   `parallel_backend="thread"` executor that followed was removed on
   2026-09-25 after it measured at parity with the process pool, 0.967x on
   free-threaded Python 3.14 (`benchmarks/thread_executor_314t_2026-09-24.md`);
-  the forward-compatibility workflow still runs the whole bounded suite on
-  that build.
+  the forward-compatibility workflow still runs the bounded suite on that
+  build (all of it but the one test that runs ruff).
 - **Full AIC peer-edge rebuild**, **lazy chain logging**, **whole-object size
   guard**: see the rejected rows of `benchmarks/README.md`.
 
